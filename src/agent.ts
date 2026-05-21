@@ -1,8 +1,8 @@
 import "dotenv/config";
 import OpenAI from "openai";
-import { spawn } from "child_process";
 import readline from "readline";
 import { skills, initBuiltinSkills, loadExternalSkills } from "./skills";
+import { registerSubAgentSkills } from "./sub-agent";
 import { initBuiltinMCP, loadExternalMCP } from "./mcp";
 import { loadMCPBridge, closeMCPBridge } from "./mcp-bridge";
 import {
@@ -59,13 +59,6 @@ function toAPIMessage(m: Message): any {
   }
   return { role: "user", content: m.content ?? "" };
 }
-
-// SubAgent 子任务类型
-type SubTask = {
-  id: string;
-  prompt: string;
-  cwd: string;
-};
 
 // ====================== 1. 终端流式打印工具 ======================
 class StreamPrinter {
@@ -173,39 +166,7 @@ async function autoCompress(messages: Message[]): Promise<Message[]> {
 
 // ====================== 4. Skill 技能注册体系（见 skills.ts）======================
 
-// ====================== 5. SubAgent 子智能体（主从架构） ======================
-async function runSubAgent(task: SubTask): Promise<string> {
-  return new Promise((resolve) => {
-    const child = spawn(
-      "npx",
-      ["ts-node", __filename, task.prompt, "subtask"],
-      {
-        cwd: task.cwd,
-        stdio: "pipe",
-      },
-    );
-
-    let output = "";
-    child.stdout.on("data", (data) => {
-      const chunk = data.toString();
-      streamPrinter.printChunk(chunk);
-      output += chunk;
-    });
-
-    child.stderr.on("data", (data) => {
-      output += `子任务错误：${data.toString()}`;
-    });
-
-    child.on("close", () => {
-      resolve(`【子任务${task.id}完成】\n${output}`);
-    });
-  });
-}
-
-// 批量并行子任务
-async function runSubAgentBatch(tasks: SubTask[]): Promise<string[]> {
-  return Promise.all(tasks.map((t) => runSubAgent(t)));
-}
+// ====================== 5. SubAgent 子智能体（见 sub-agent.ts）======================
 
 // ====================== 6. MCP 协议基座（见 mcp.ts）======================
 
@@ -222,6 +183,7 @@ export async function agentLoop(
 ) {
   const { isSubTask = false, interactive = !isSubTask } = options;
   initBuiltinSkills(confirmOperation);
+  registerSubAgentSkills();
   await loadExternalSkills();
   initBuiltinMCP();
   await loadExternalMCP();
@@ -328,7 +290,8 @@ export async function agentLoop(
       streamPrinter.newLine();
 
       if (finishReason === "length") {
-        const msg = "输出因达到 max_tokens 上限被截断，tool call 参数可能不完整";
+        const msg =
+          "输出因达到 max_tokens 上限被截断，tool call 参数可能不完整";
         console.warn(`\n⚠️  ${msg}`);
         await logWarn(msg);
       }
