@@ -17,7 +17,7 @@ type SubTask = {
 // ====================== 子 Agent 执行 ======================
 function runSubAgent(task: SubTask): Promise<string> {
   return new Promise((resolve) => {
-    const child = spawn("tsx", [RUNNER, task.prompt], {
+    const child = spawn("tsx", [RUNNER, task.prompt, task.id], {
       cwd: task.cwd ?? process.cwd(),
       stdio: "pipe",
       env: process.env,

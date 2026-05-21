@@ -174,6 +174,8 @@ export type AgentLoopOptions = {
   isSubTask?: boolean;
   /** 交互模式：模型无 tool call 时等待终端输入再继续，而非直接退出 */
   interactive?: boolean;
+  /** 日志标签，用于区分主 Agent 与子任务，默认 "主Agent" */
+  logLabel?: string;
 };
 
 // ====================== 核心Agent主循环 ======================
@@ -181,14 +183,14 @@ export async function agentLoop(
   userPrompt: string,
   options: AgentLoopOptions = {},
 ) {
-  const { isSubTask = false, interactive = !isSubTask } = options;
+  const { isSubTask = false, interactive = !isSubTask, logLabel } = options;
   initBuiltinSkills(confirmOperation);
   registerSubAgentSkills();
   await loadExternalSkills();
   initBuiltinMCP();
   await loadExternalMCP();
   await loadMCPBridge();
-  await initLog(userPrompt);
+  await initLog(userPrompt, logLabel);
 
   try {
     const messages: Message[] = [
