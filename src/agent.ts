@@ -5,6 +5,15 @@ import readline from "readline";
 import { skills, initBuiltinSkills, loadExternalSkills } from "./skills";
 import { initBuiltinMCP, loadExternalMCP } from "./mcp";
 import { loadMCPBridge, closeMCPBridge } from "./mcp-bridge";
+import {
+  initLog,
+  logAssistant,
+  logToolCall,
+  logToolResult,
+  logUser,
+  logDone,
+  logWarn,
+} from "./logger";
 
 // ====================== 全局配置 ======================
 const client = new OpenAI({
@@ -217,6 +226,7 @@ export async function agentLoop(
   initBuiltinMCP();
   await loadExternalMCP();
   await loadMCPBridge();
+  await initLog(userPrompt);
 
   try {
     const messages: Message[] = [
@@ -263,9 +273,9 @@ export async function agentLoop(
           const retryable = e?.status === 503 || e?.status === 429;
           if (!retryable || attempt >= 5) throw e;
           const wait = Math.min(2 ** attempt * 1000, 30000);
-          console.warn(
-            `\n⚠️  API ${e.status}，${wait / 1000}s 后重试（${attempt}/5）...`,
-          );
+          const msg = `API ${e.status}，${wait / 1000}s 后重试（${attempt}/5）...`;
+          console.warn(`\n⚠️  ${msg}`);
+          await logWarn(msg);
           await new Promise((r) => setTimeout(r, wait));
         }
       }
@@ -318,12 +328,14 @@ export async function agentLoop(
       streamPrinter.newLine();
 
       if (finishReason === "length") {
-        console.warn(
-          "\n⚠️  输出因达到 max_tokens 上限被截断，tool call 参数可能不完整",
-        );
+        const msg = "输出因达到 max_tokens 上限被截断，tool call 参数可能不完整";
+        console.warn(`\n⚠️  ${msg}`);
+        await logWarn(msg);
       }
 
       const collectedToolCalls = Object.values(tcMap);
+
+      await logAssistant(fullContent, reasoningContent || undefined);
 
       // 将 assistant 消息推入上下文
       const assistantMsg: Message = {
@@ -344,13 +356,16 @@ export async function agentLoop(
           );
           if (!userReply) {
             console.log("\n✅ 任务全部完成！");
+            await logDone();
             return;
           }
+          await logUser(userReply);
           messages.push({ role: "user", content: userReply });
           continue;
         }
         console.log("\n✅ 任务全部完成！最终总结：");
         if (fullContent) console.log(fullContent);
+        await logDone(fullContent || undefined);
         return;
       }
 
@@ -367,6 +382,7 @@ export async function agentLoop(
           continue;
         }
         console.log(`\n🔧 调用技能：${skillName}`);
+        await logToolCall(skillName, skillArgs);
 
         // 匹配对应Skill执行
         const skill = skills.find((s) => s.name === skillName);
@@ -376,6 +392,8 @@ export async function agentLoop(
         } else {
           toolResult = `未知技能：${skillName}`;
         }
+
+        await logToolResult(skillName, toolResult);
 
         // 回填上下文，继续循环
         messages.push({

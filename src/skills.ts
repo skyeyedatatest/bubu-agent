@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import { execSync } from "child_process";
+import { logToolCall } from "./logger";
 
 const WORK_DIR = process.cwd();
 
@@ -76,8 +77,7 @@ export async function loadExternalSkills(
             console.warn(`⚠️  ${file} 中存在无效 skill 对象，已跳过`);
           }
         }
-        if (count > 0)
-          console.log(`  ✅ ${file} → 加载 ${count} 个技能`);
+        if (count > 0) console.log(`  ✅ ${file} → 加载 ${count} 个技能`);
       } else if (isValidSkill(exported)) {
         registerSkill(exported!);
         console.log(`  ✅ ${file} → 加载技能：${exported!.name}`);
@@ -103,27 +103,21 @@ function isValidSkill(s: any): s is Skill {
 export function initBuiltinSkills(
   confirmOperation: (cmd: string) => Promise<boolean>,
 ) {
-  const BAN_CMD = ["rm -rf /", "sudo ", "chmod 777", "> /etc", "mkfs ", "dd if="];
-  const NEED_CONFIRM_CMD = ["rm ", "mv ", "chmod", "npm uninstall", "git reset"];
-
-  // 读取文件
-  registerSkill({
-    name: "read_file",
-    description: "读取项目内文件内容，支持局部读取",
-    input_schema: {
-      type: "object",
-      properties: { filePath: { type: "string" } },
-      required: ["filePath"],
-    },
-    handler: async (args) => {
-      const fullPath = path.resolve(WORK_DIR, args.filePath);
-      try {
-        return await fs.readFile(fullPath, "utf-8");
-      } catch (e: any) {
-        return `❌ 读取失败：${e.message}`;
-      }
-    },
-  });
+  const BAN_CMD = [
+    "rm -rf /",
+    "sudo ",
+    "chmod 777",
+    "> /etc",
+    "mkfs ",
+    "dd if=",
+  ];
+  const NEED_CONFIRM_CMD = [
+    "rm ",
+    "mv ",
+    "chmod",
+    "npm uninstall",
+    "git reset",
+  ];
 
   // 删除文件（阻塞等待用户确认）
   registerSkill({
@@ -145,23 +139,6 @@ export function initBuiltinSkills(
       if (!ok) return `❌ 用户取消删除：${args.filePath}`;
       await fs.unlink(fullPath);
       return `✅ 已删除：${args.filePath}`;
-    },
-  });
-
-  // 写入文件
-  registerSkill({
-    name: "write_file",
-    description: "新建/覆盖项目文件",
-    input_schema: {
-      type: "object",
-      properties: { filePath: { type: "string" }, content: { type: "string" } },
-      required: ["filePath", "content"],
-    },
-    handler: async (args) => {
-      const fullPath = path.resolve(WORK_DIR, args.filePath);
-      await fs.mkdir(path.dirname(fullPath), { recursive: true });
-      await fs.writeFile(fullPath, args.content, "utf-8");
-      return `✅ 文件写入成功：${args.filePath}`;
     },
   });
 

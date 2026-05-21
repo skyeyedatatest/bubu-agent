@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/tmp",
+        "/Users/hetao/Downloads",
+        "/Users/hetao/Desktop"
+      ]
+    }
+  }
+}

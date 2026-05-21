@@ -23,19 +23,22 @@ MODEL=deepseek-v4-flash
 **3. 运行**
 
 ```bash
-# 编译后运行
 npm run dev
-
-# 或直接用 ts-node
-npx ts-node index.ts
 ```
 
 在 `index.ts` 中修改 `agentLoop` 的入参即可指定任务：
 
 ```typescript
-import { agentLoop } from "./agent.js";
+import { agentLoop } from "./agent";
 
 await agentLoop("在 output 目录下创建一个网页贪食蛇游戏");
+```
+
+其他可用脚本：
+
+```bash
+npm run typecheck   # 仅做类型检查，不运行
+npm run build       # 编译到 dist/
 ```
 
 ---
