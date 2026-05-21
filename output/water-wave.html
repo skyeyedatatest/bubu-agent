@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>银河特效</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow: hidden; background: #000; }
+  canvas { display: block; }
+  #info {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    color: rgba(255,255,255,0.2); font: 13px/1.5 sans-serif;
+    pointer-events: none; text-align: center; z-index: 10;
+  }
+  #loading {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    color: #8888ff; font: 18px sans-serif; z-index: 20;
+    background: #000;
+  }
+  #loading .spinner {
+    width: 40px; height: 40px; margin-bottom: 16px;
+    border: 3px solid rgba(100,100,255,0.2); border-top-color: #8888ff;
+    border-radius: 50%; animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #loading .sub { color: rgba(100,100,255,0.3); font-size: 13px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div id="loading"><div class="spinner"></div><div>宇宙生成中...</div><div class="sub">正在穿越星际</div></div>
+<div id="info">🖱 拖拽旋转 · 滚轮缩放</div>
+
+<script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+<script>
+document.getElementById('loading').style.display = 'none';
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000005);
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 8, 18);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+document.body.appendChild(renderer.domElement);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.minDistance = 4;
+controls.maxDistance = 50;
+controls.target.set(0, 0, 0);
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.3;
+
+// ===== 环境光 =====
+scene.add(new THREE.AmbientLight(0x222244, 0.5));
+
+// ===== 银河粒子 =====
+const STAR_COUNT = 60000;
+const galaxyGeo = new THREE.BufferGeometry();
+const galaxyPos = new Float32Array(STAR_COUNT * 3);
+const galaxyColors = new Float32Array(STAR_COUNT * 3);
+const galaxySizes = new Float32Array(STAR_COUNT);
+
+const armCount = 4;
+const arms = 4;
+const radius = 12;
+const armSpread = 0.5;
+const coreRadius = 1.8;
+
+const colorCenter = new THREE.Color(0xffdd88);
+const colorMid = new THREE.Color(0xff8844);
+const colorOuter = new THREE.Color(0x4488ff);
+const colorOuter2 = new THREE.Color(0x8844ff);
+
+for (let i = 0; i < STAR_COUNT; i++) {
+  // 随机角度
+  const angle = Math.random() * Math.PI * 2;
+  // 臂的偏移
+  const armAngleOffset = (i % arms) * (Math.PI * 2 / arms);
+  // 半径（偏向中心更密集）
+  const r = Math.pow(Math.random(), 0.6) * radius;
+  
+  // 螺旋偏移：半径越大角度偏移越大
+  const spiralAngle = r * 0.6 + armAngleOffset;
+  // 随机散布
+  const scatter = (0.5 - Math.random()) * armSpread * (r + 0.5) * 0.4;
+  const scatterAngle = Math.random() * Math.PI * 2;
+  
+  const finalAngle = angle + spiralAngle + scatter * Math.cos(scatterAngle) * 0.3;
+  const finalRadius = r + scatter * Math.sin(scatterAngle) * 0.3;
+  
+  // 薄盘厚度 - 中心厚边缘薄
+  const heightScale = 0.3 + Math.random() * 0.2;
+  const yOffset = (Math.random() - 0.5) * heightScale * (1 - r / radius * 0.7);
+  
+  const x = Math.cos(finalAngle) * finalRadius;
+  const z = Math.sin(finalAngle) * finalRadius;
+  const y = yOffset * 0.8;
+  
+  galaxyPos[i * 3] = x;
+  galaxyPos[i * 3 + 1] = y;
+  galaxyPos[i * 3 + 2] = z;
+  
+  // 颜色
+  const distNorm = r / radius;
+  let color;
+  if (distNorm < 0.2) {
+    // 核心 - 暖黄
+    color = colorCenter.clone().lerp(colorMid, distNorm * 5);
+  } else if (distNorm < 0.5) {
+    // 内臂 - 橙黄到蓝紫
+    color = colorMid.clone().lerp(colorOuter, (distNorm - 0.2) * 3.33);
+  } else {
+    // 外臂 - 蓝到紫
+    color = colorOuter.clone().lerp(colorOuter2, (distNorm - 0.5) * 2);
+  }
+  
+  // 随机亮度变化
+  const brightness = 0.5 + Math.random() * 0.5;
+  galaxyColors[i * 3] = color.r * brightness;
+  galaxyColors[i * 3 + 1] = color.g * brightness;
+  galaxyColors[i * 3 + 2] = color.b * brightness;
+  
+  // 大小 - 核心更大
+  galaxySizes[i] = (0.08 + Math.random() * 0.2) * (1 + (1 - distNorm) * 0.5);
+}
+
+galaxyGeo.setAttribute('position', new THREE.BufferAttribute(galaxyPos, 3));
+galaxyGeo.setAttribute('color', new THREE.BufferAttribute(galaxyColors, 3));
+galaxyGeo.setAttribute('size', new THREE.BufferAttribute(galaxySizes, 1));
+
+const galaxyMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uTime: { value: 0 },
+  },
+  vertexShader: `
+    attribute float size;
+    attribute vec3 color;
+    varying vec3 vColor;
+    uniform float uTime;
+    void main() {
+      vColor = color;
+      vec3 pos = position;
+      // 缓慢自转
+      float angle = uTime * 0.02 * (1.0 + length(pos.xz) * 0.05);
+      float c = cos(angle);
+      float s = sin(angle);
+      float x = pos.x * c - pos.z * s;
+      float z = pos.x * s + pos.z * c;
+      pos.x = x;
+      pos.z = z;
+      
+      vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+      gl_PointSize = size * (120.0 / -mvPosition.z);
+      gl_Position = projectionMatrix * mvPosition;
+    }
+  `,
+  fragmentShader: `
+    varying vec3 vColor;
+    void main() {
+      float d = distance(gl_PointCoord, vec2(0.5));
+      if (d > 0.5) discard;
+      float alpha = 1.0 - smoothstep(0.0, 0.5, d);
+      alpha = pow(alpha, 1.5);
+      gl_FragColor = vec4(vColor, alpha);
+    }
+  `,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+
+const galaxy = new THREE.Points(galaxyGeo, galaxyMat);
+scene.add(galaxy);
+
+// ===== 核心光晕 =====
+const glowParticles = 2000;
+const glowGeo = new THREE.BufferGeometry();
+const glowPos = new Float32Array(glowParticles * 3);
+const glowSizes = new Float32Array(glowParticles);
+const glowColors = new Float32Array(glowParticles * 3);
+
+for (let i = 0; i < glowParticles; i++) {
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(2 * Math.random() - 1);
+  const r = Math.pow(Math.random(), 1.5) * 3.5;
+  glowPos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+  glowPos[i * 3 + 1] = r * Math.cos(phi) * 0.3;
+  glowPos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+  glowSizes[i] = Math.random() * 0.8 + 0.2;
+  
+  const c = new THREE.Color(0xffaa44).lerp(new THREE.Color(0xff6600), Math.random() * 0.5);
+  glowColors[i * 3] = c.r;
+  glowColors[i * 3 + 1] = c.g;
+  glowColors[i * 3 + 2] = c.b;
+}
+
+glowGeo.setAttribute('position', new THREE.BufferAttribute(glowPos, 3));
+glowGeo.setAttribute('size', new THREE.BufferAttribute(glowSizes, 1));
+glowGeo.setAttribute('color', new THREE.BufferAttribute(glowColors, 3));
+
+const glowMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 } },
+  vertexShader: `
+    attribute float size;
+    attribute vec3 color;
+    varying vec3 vColor;
+    uniform float uTime;
+    void main() {
+      vColor = color;
+      vec3 pos = position;
+      float angle = uTime * 0.03;
+      float c = cos(angle);
+      float s = sin(angle);
+      float x = pos.x * c - pos.z * s;
+      float z = pos.x * s + pos.z * c;
+      pos.x = x;
+      pos.z = z;
+      pos.y += sin(uTime * 0.5 + position.x * 2.0) * 0.05;
+      vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+      gl_PointSize = size * (150.0 / -mv.z);
+      gl_Position = projectionMatrix * mv;
+    }
+  `,
+  fragmentShader: `
+    varying vec3 vColor;
+    void main() {
+      float d = distance(gl_PointCoord, vec2(0.5));
+      if (d > 0.5) discard;
+      float alpha = 1.0 - smoothstep(0.0, 0.5, d);
+      alpha = pow(alpha, 2.0) * 0.6;
+      gl_FragColor = vec4(vColor, alpha);
+    }
+  `,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+
+const glowMesh = new THREE.Points(glowGeo, glowMat);
+scene.add(glowMesh);
+
+// ===== 星云（大尺寸半透明粒子）=====
+const NEBULA = 300;
+const nebulaGeo = new THREE.BufferGeometry();
+const nebulaPos = new Float32Array(NEBULA * 3);
+const nebulaCol = new Float32Array(NEBULA * 3);
+const nebulaSize = new Float32Array(NEBULA);
+
+const nebulaColors = [
+  new THREE.Color(0xff4488),
+  new THREE.Color(0x8844ff),
+  new THREE.Color(0x4488ff),
+  new THREE.Color(0xff8844),
+  new THREE.Color(0x44ff88),
+];
+
+for (let i = 0; i < NEBULA; i++) {
+  const angle = Math.random() * Math.PI * 2;
+  const r = 3 + Math.random() * 10;
+  const spiral = r * 0.5;
+  const spread = (Math.random() - 0.5) * 2;
+  nebulaPos[i * 3] = Math.cos(angle + spiral) * (r + spread);
+  nebulaPos[i * 3 + 1] = (Math.random() - 0.5) * 1.5;
+  nebulaPos[i * 3 + 2] = Math.sin(angle + spiral) * (r + spread);
+  
+  const c = nebulaColors[Math.floor(Math.random() * nebulaColors.length)];
+  const b = 0.3 + Math.random() * 0.3;
+  nebulaCol[i * 3] = c.r * b;
+  nebulaCol[i * 3 + 1] = c.g * b;
+  nebulaCol[i * 3 + 2] = c.b * b;
+  nebulaSize[i] = Math.random() * 4 + 2;
+}
+
+nebulaGeo.setAttribute('position', new THREE.BufferAttribute(nebulaPos, 3));
+nebulaGeo.setAttribute('color', new THREE.BufferAttribute(nebulaCol, 3));
+nebulaGeo.setAttribute('size', new THREE.BufferAttribute(nebulaSize, 1));
+
+const nebulaMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 } },
+  vertexShader: `
+    attribute float size;
+    attribute vec3 color;
+    varying vec3 vColor;
+    uniform float uTime;
+    void main() {
+      vColor = color;
+      vec3 pos = position;
+      float angle = uTime * 0.01;
+      float c = cos(angle);
+      float s = sin(angle);
+      float x = pos.x * c - pos.z * s;
+      float z = pos.x * s + pos.z * c;
+      pos.x = x;
+      pos.z = z;
+      vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+      gl_PointSize = size * (80.0 / -mv.z);
+      gl_Position = projectionMatrix * mv;
+      gl_PointSize = clamp(gl_PointSize, 0.0, 100.0);
+    }
+  `,
+  fragmentShader: `
+    varying vec3 vColor;
+    void main() {
+      float d = distance(gl_PointCoord, vec2(0.5));
+      if (d > 0.5) discard;
+      float alpha = 1.0 - smoothstep(0.0, 0.5, d);
+      alpha = pow(alpha, 3.0) * 0.2;
+      gl_FragColor = vec4(vColor, alpha);
+    }
+  `,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+
+const nebula = new THREE.Points(nebulaGeo, nebulaMat);
+scene.add(nebula);
+
+// ===== 背景星空 =====
+const BG_STARS = 8000;
+const bgGeo = new THREE.BufferGeometry();
+const bgPos = new Float32Array(BG_STARS * 3);
+const bgSizes = new Float32Array(BG_STARS);
+const bgBright = new Float32Array(BG_STARS);
+
+for (let i = 0; i < BG_STARS; i++) {
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(2 * Math.random() - 1);
+  const r = 80 + Math.random() * 200;
+  bgPos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+  bgPos[i * 3 + 1] = r * Math.cos(phi);
+  bgPos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+  bgSizes[i] = Math.random() * 1.5 + 0.3;
+  bgBright[i] = Math.random();
+}
+
+bgGeo.setAttribute('position', new THREE.BufferAttribute(bgPos, 3));
+bgGeo.setAttribute('size', new THREE.BufferAttribute(bgSizes, 1));
+bgGeo.setAttribute('bright', new THREE.BufferAttribute(bgBright, 1));
+
+const bgMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 } },
+  vertexShader: `
+    attribute float size;
+    attribute float bright;
+    varying float vBright;
+    uniform float uTime;
+    void main() {
+      float twinkle = 0.5 + 0.5 * sin(uTime * (0.5 + bright * 2.0) + bright * 100.0);
+      vBright = bright * twinkle;
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = size * (50.0 / -mv.z);
+      gl_Position = projectionMatrix * mv;
+    }
+  `,
+  fragmentShader: `
+    varying float vBright;
+    void main() {
+      float d = distance(gl_PointCoord, vec2(0.5));
+      if (d > 0.5) discard;
+      float alpha = 1.0 - smoothstep(0.0, 0.5, d);
+      float c = vBright * 0.6 + 0.4;
+      gl_FragColor = vec4(c, c, c * 1.2, alpha * 0.8);
+    }
+  `,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+
+const bgStars = new THREE.Points(bgGeo, bgMat);
+scene.add(bgStars);
+
+// ===== 远处小星云背景 =====
+const BG_NEBULA = 50;
+const bgNebulaGeo = new THREE.BufferGeometry();
+const bgNebulaPos = new Float32Array(BG_NEBULA * 3);
+const bgNebulaCol = new Float32Array(BG_NEBULA * 3);
+const bgNebulaSize = new Float32Array(BG_NEBULA);
+
+for (let i = 0; i < BG_NEBULA; i++) {
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(2 * Math.random() - 1);
+  const r = 40 + Math.random() * 60;
+  bgNebulaPos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+  bgNebulaPos[i * 3 + 1] = r * Math.cos(phi) * 0.3;
+  bgNebulaPos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+  
+  const c = nebulaColors[Math.floor(Math.random() * nebulaColors.length)];
+  bgNebulaCol[i * 3] = c.r * 0.15;
+  bgNebulaCol[i * 3 + 1] = c.g * 0.15;
+  bgNebulaCol[i * 3 + 2] = c.b * 0.15;
+  bgNebulaSize[i] = Math.random() * 20 + 10;
+}
+
+bgNebulaGeo.setAttribute('position', new THREE.BufferAttribute(bgNebulaPos, 3));
+bgNebulaGeo.setAttribute('color', new THREE.BufferAttribute(bgNebulaCol, 3));
+bgNebulaGeo.setAttribute('size', new THREE.BufferAttribute(bgNebulaSize, 1));
+
+const bgNebulaMat = new THREE.ShaderMaterial({
+  vertexShader: `
+    attribute float size;
+    attribute vec3 color;
+    varying vec3 vColor;
+    void main() {
+      vColor = color;
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = size * (60.0 / -mv.z);
+      gl_Position = projectionMatrix * mv;
+    }
+  `,
+  fragmentShader: `
+    varying vec3 vColor;
+    void main() {
+      float d = distance(gl_PointCoord, vec2(0.5));
+      if (d > 0.5) discard;
+      float alpha = 1.0 - smoothstep(0.0, 0.5, d);
+      alpha = pow(alpha, 4.0) * 0.3;
+      gl_FragColor = vec4(vColor, alpha);
+    }
+  `,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+
+const bgNebula = new THREE.Points(bgNebulaGeo, bgNebulaMat);
+scene.add(bgNebula);
+
+// ===== 自适应 =====
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ===== 动画 =====
+const clock = new THREE.Clock();
+
+function animate() {
+  const elapsed = clock.getElapsedTime();
+  
+  galaxy.material.uniforms.uTime.value = elapsed;
+  glowMesh.material.uniforms.uTime.value = elapsed;
+  nebula.material.uniforms.uTime.value = elapsed;
+  bgStars.material.uniforms.uTime.value = elapsed;
+  
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(animate);
+}
+
+animate();
+</script>
+</body>
+</html>
