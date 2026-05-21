@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 飞行游戏</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { overflow: hidden; background: #000; font-family: 'Arial', sans-serif; }
+        canvas { display: block; }
+
+        /* HUD 界面 */
+        #hud {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%;
+            pointer-events: none;
+            z-index: 10;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+        #score {
+            color: #fff;
+            font-size: 28px;
+            font-weight: bold;
+            text-shadow: 0 0 20px rgba(0,150,255,0.8), 0 2px 4px rgba(0,0,0,0.8);
+        }
+        #score span { color: #00ccff; }
+        #speed-display {
+            color: rgba(255,255,255,0.7);
+            font-size: 18px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+        }
+        #controls-hint {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255,255,255,0.4);
+            font-size: 14px;
+            background: rgba(0,0,0,0.5);
+            padding: 10px 20px;
+            border-radius: 8px;
+            pointer-events: none;
+            z-index: 10;
+            white-space: nowrap;
+        }
+
+        /* 游戏结束覆盖层 */
+        #game-over {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.75);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 20;
+            pointer-events: auto;
+        }
+        #game-over h1 {
+            color: #ff4444;
+            font-size: 64px;
+            margin-bottom: 20px;
+            text-shadow: 0 0 40px rgba(255,0,0,0.6);
+        }
+        #game-over p {
+            color: #fff;
+            font-size: 28px;
+            margin-bottom: 30px;
+        }
+        #game-over button {
+            padding: 15px 50px;
+            font-size: 24px;
+            background: linear-gradient(135deg, #00aaff, #0055ff);
+            color: #fff;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            pointer-events: auto;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        #game-over button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 30px rgba(0,100,255,0.6);
+        }
+        #game-over button:active { transform: scale(0.95); }
+
+        /* 开始界面 */
+        #start-screen {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: linear-gradient(180deg, #0a0a2a 0%, #1a1a4a 50%, #0a0a2a 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 30;
+            pointer-events: auto;
+        }
+        #start-screen h1 {
+            color: #fff;
+            font-size: 56px;
+            margin-bottom: 10px;
+            text-shadow: 0 0 40px rgba(0,150,255,0.5);
+        }
+        #start-screen .subtitle {
+            color: rgba(255,255,255,0.6);
+            font-size: 18px;
+            margin-bottom: 50px;
+        }
+        #start-screen button {
+            padding: 18px 60px;
+            font-size: 28px;
+            background: linear-gradient(135deg, #00aaff, #0055ff);
+            color: #fff;
+            border: none;
+            border-radius: 16px;
+            cursor: pointer;
+            pointer-events: auto;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 0 30px rgba(0,100,255,0.3);
+        }
+        #start-screen button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 0 50px rgba(0,100,255,0.6);
+        }
+        #start-screen .controls-info {
+            color: rgba(255,255,255,0.4);
+            font-size: 14px;
+            margin-top: 40px;
+            text-align: center;
+            line-height: 1.8;
+        }
+        .fuel-bar-container {
+            width: 200px;
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+        .fuel-bar {
+            height: 100%;
+            width: 100%;
+            background: linear-gradient(90deg, #ff4400, #ffaa00, #00ff88);
+            border-radius: 4px;
+            transition: width 0.3s;
+        }
+    </style>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+        }
+    }
+    </script>
+</head>
+<body>
+    <!-- 开始界面 -->
+    <div id="start-screen">
+        <h1>✈️ 天际飞行</h1>
+        <div class="subtitle">3D 飞行冒险</div>
+        <button id="start-btn">开始游戏</button>
+        <div class="controls-info">
+            🎮 <strong>W</strong> 爬升 &nbsp;|&nbsp; <strong>S</strong> 俯冲 &nbsp;|&nbsp; <strong>A/D</strong> 左右转向<br>
+            🖱️ 鼠标移动控制方向 &nbsp;|&nbsp; 穿越光圈获得分数
+        </div>
+    </div>
+
+    <!-- 游戏结束 -->
+    <div id="game-over">
+        <h1>💥 坠毁</h1>
+        <p>得分: <span id="final-score">0</span></p>
+        <button id="restart-btn">重新开始</button>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud">
+        <div>
+            <div id="score">🏆 <span id="score-value">0</span></div>
+            <div class="fuel-bar-container">
+                <div class="fuel-bar" id="fuel-bar"></div>
+            </div>
+        </div>
+        <div id="speed-display">速度: <span id="speed-value">0</span></div>
+    </div>
+    <div id="controls-hint">W 爬升 | S 俯冲 | A/D 转向 | 鼠标控制方向</div>
+
+<script type="module">
+import * as THREE from 'three';
+
+// ============================================================
+// 📦 第1段：场景、相机、渲染器初始化
+// ============================================================
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87CEEB);
+scene.fog = new THREE.Fog(0x87CEEB, 200, 800);
+
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1500);
+camera.position.set(0, 5, 12);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+document.body.prepend(renderer.domElement);
+
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ============================================================
+// 💡 第2段：光照系统
+// ============================================================
+
+const ambientLight = new THREE.AmbientLight(0x404060, 0.3);
+scene.add(ambientLight);
+
+const sunLight = new THREE.DirectionalLight(0xffeedd, 1.8);
+sunLight.position.set(100, 150, 50);
+sunLight.castShadow = true;
+sunLight.shadow.mapSize.width = 2048;
+sunLight.shadow.mapSize.height = 2048;
+sunLight.shadow.camera.near = 1;
+sunLight.shadow.camera.far = 400;
+sunLight.shadow.camera.left = -100;
+sunLight.shadow.camera.right = 100;
+sunLight.shadow.camera.top = 100;
+sunLight.shadow.camera.bottom = -100;
+scene.add(sunLight);
+
+const fillLight = new THREE.DirectionalLight(0x4488ff, 0.4);
+fillLight.position.set(-50, 30, -100);
+scene.add(fillLight);
+
+const rimLight = new THREE.DirectionalLight(0xffaa66, 0.3);
+rimLight.position.set(-30, 10, 80);
+scene.add(rimLight);
+
+const hemiLight = new THREE.HemisphereLight(0x87CEEB, 0x3a7d44, 0.6);
+scene.add(hemiLight);
+
+// ============================================================
+// ✈️ 第3段：创建飞机模型
+// ============================================================
+
+let aircraft, propeller, propellerGroup;
+
+function createAircraft() {
+    const group = new THREE.Group();
+
+    // 机身
+    const bodyGeo = new THREE.CylinderGeometry(0.3, 0.6, 3.2, 8);
+    bodyGeo.rotateX(Math.PI / 2);
+    const pos = bodyGeo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+        if (z > 1.2) {
+            const t = (z - 1.2) / 0.4;
+            pos.setX(i, x * (1 - t * 0.6));
+            pos.setY(i, y * (1 - t * 0.6));
+        }
+    }
+    pos.needsUpdate = true;
+    bodyGeo.computeVertexNormals();
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x3388ff, metalness: 0.7, roughness: 0.3 });
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    body.castShadow = true;
+    group.add(body);
+
+    // 机头尖
+    const noseGeo = new THREE.ConeGeometry(0.3, 0.6, 8);
+    noseGeo.rotateX(-Math.PI / 2);
+    noseGeo.translate(0, 0, 1.8);
+    const noseMat = new THREE.MeshStandardMaterial({ color: 0x2255cc, metalness: 0.8, roughness: 0.2 });
+    group.add(new THREE.Mesh(noseGeo, noseMat));
+
+    // 驾驶舱
+    const cockpitGeo = new THREE.SphereGeometry(0.5, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+    cockpitGeo.translate(0, 0.35, 0.3);
+    cockpitGeo.scale(0.7, 0.7, 0.9);
+    const cockpitMat = new THREE.MeshStandardMaterial({
+        color: 0x88ccff, metalness: 0.1, roughness: 0.05,
+        transparent: true, opacity: 0.6,
+    });
+    group.add(new THREE.Mesh(cockpitGeo, cockpitMat));
+
+    // 主翼
+    const wingShape = new THREE.Shape();
+    wingShape.moveTo(-1.8, 0);
+    wingShape.quadraticCurveTo(-2.0, 0.15, -1.8, 0.3);
+    wingShape.lineTo(-0.3, 0.3);
+    wingShape.quadraticCurveTo(0, 0.25, 0.4, 0.3);
+    wingShape.lineTo(1.8, 0.3);
+    wingShape.quadraticCurveTo(2.0, 0.15, 1.8, 0);
+    wingShape.quadraticCurveTo(2.0, -0.15, 1.8, -0.3);
+    wingShape.lineTo(0.4, -0.3);
+    wingShape.quadraticCurveTo(0, -0.25, -0.3, -0.3);
+    wingShape.lineTo(-1.8, -0.3);
+    wingShape.quadraticCurveTo(-2.0, -0.15, -1.8, 0);
+    const wingGeo = new THREE.ShapeGeometry(wingShape);
+    wingGeo.translate(0, 0.1, 0);
+    const wingMat = new THREE.MeshStandardMaterial({ color: 0x2277ee, metalness: 0.5, roughness: 0.4, side: THREE.DoubleSide });
+    const wing = new THREE.Mesh(wingGeo, wingMat);
+    wing.position.set(0, 0, -0.3);
+    wing.castShadow = true;
+    group.add(wing);
+
+    // 尾翼水平
+    const twShape = new THREE.Shape();
+    twShape.moveTo(-0.7, 0).lineTo(-0.7, 0.15).lineTo(-0.1, 0.15).lineTo(-0.1, 0);
+    twShape.lineTo(0.1, 0).lineTo(0.1, 0.15).lineTo(0.7, 0.15).lineTo(0.7, 0);
+    twShape.lineTo(0.1, -0.15).lineTo(-0.1, -0.15).lineTo(-0.7, 0);
+    const twMat = new THREE.MeshStandardMaterial({ color: 0x3366cc, side: THREE.DoubleSide, metalness: 0.5, roughness: 0.4 });
+    const tw = new THREE.Mesh(new THREE.ShapeGeometry(twShape), twMat);
+    tw.position.set(0, 0.1, -1.3);
+    group.add(tw);
+
+    // 尾翼垂直
+    const finShape = new THREE.Shape();
+    finShape.moveTo(0, 0).lineTo(0, 0.5).quadraticCurveTo(0, 0.7, -0.2, 0.65);
+    finShape.lineTo(-0.4, 0.5).lineTo(-0.4, 0);
+    const finMat = new THREE.MeshStandardMaterial({ color: 0x3366cc, side: THREE.DoubleSide, metalness: 0.5, roughness: 0.4 });
+    const fin = new THREE.Mesh(new THREE.ShapeGeometry(finShape), finMat);
+    fin.position.set(0, 0.15, -1.5);
+    group.add(fin);
+
+    // 排气管
+    const exhMat = new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.9, roughness: 0.3 });
+    for (let s = -1; s <= 1; s += 2) {
+        const exh = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.2, 6), exhMat);
+        exh.rotation.z = Math.PI / 2;
+        exh.position.set(s * 0.35, -0.15, 1.7);
+        group.add(exh);
+    }
+
+    // 螺旋桨
+    propellerGroup = new THREE.Group();
+    const propMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.6, roughness: 0.5 });
+    for (let i = 0; i < 2; i++) {
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.7, 0.15), propMat);
+        blade.position.set(0, i === 0 ? 0.45 : -0.45, 0);
+        blade.rotation.z = i === 1 ? Math.PI : 0;
+        propellerGroup.add(blade);
+    }
+    const hub = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8),
+        new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.8, roughness: 0.2 }));
+    propellerGroup.add(hub);
+    propellerGroup.position.set(0, 0, 2.1);
+    group.add(propellerGroup);
+    propeller = propellerGroup;
+
+    group.scale.set(0.8, 0.8, 0.8);
+    return group;
+}
+
+aircraft = createAircraft();
+aircraft.position.set(0, 20, 0);
+scene.add(aircraft);
+
+// ============================================================
+// 🌍 第4段：地面、山脉、树木环境
+// ============================================================
+
+// 地面
+const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(2000, 2000),
+    new THREE.MeshStandardMaterial({ color: 0x3a8d44, roughness: 0.9, metalness: 0.0 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// 网格
+const grid = new THREE.GridHelper(600, 60, 0x88cc88, 0x559955);
+grid.position.y = -1.9;
+grid.material.transparent = true;
+grid.material.opacity = 0.3;
+scene.add(grid);
+
+// 山脉
+function createMountains() {
+    const g = new THREE.Group();
+    const rockMat = new THREE.MeshStandardMaterial({ color: 0x6b8e6b, roughness: 0.8, flatShading: true });
+    const snowMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, flatShading: true });
+    for (let i = 0; i < 40; i++) {
+        const h = 5 + Math.random() * 30;
+        const m = new THREE.Mesh(new THREE.ConeGeometry(8 + Math.random() * 20, h, 5 + Math.floor(Math.random() * 4)), h > 25 ? snowMat : rockMat);
+        m.castShadow = true; m.receiveShadow = true;
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 60 + Math.random() * 300;
+        m.position.set(Math.cos(angle) * dist, -2 + h / 2, Math.sin(angle) * dist);
+        m.rotation.y = Math.random() * Math.PI * 2;
+        g.add(m);
+    }
+    return g;
+}
+scene.add(createMountains());
+
+// 树木
+function createTrees() {
+    const g = new THREE.Group();
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5d4037, roughness: 0.9 });
+    const leafMat = new THREE.MeshStandardMaterial({ color: 0x2d7d3a, roughness: 0.8 });
+    for (let i = 0; i < 200; i++) {
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.3, 1.5, 4), trunkMat);
+        const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.2, 2.0, 5), leafMat);
+        leaves.position.y = 1.7;
+        trunk.add(leaves);
+        trunk.position.y = -1.25;
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 20 + Math.random() * 200;
+        trunk.position.set(Math.cos(angle) * dist, -1.25, Math.sin(angle) * dist);
+        trunk.scale.setScalar(0.5 + Math.random() * 0.8);
+        trunk.rotation.y = Math.random() * Math.PI * 2;
+        g.add(trunk);
+    }
+    return g;
+}
+scene.add(createTrees());
+
+// ============================================================
+// ☁️ 第5段：云彩
+// ============================================================
+
+const clouds = [];
+
+function createCloud(x, y, z, scale) {
+    const g = new THREE.Group();
+    const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2, metalness: 0.0, transparent: true, opacity: 0.85 });
+    const p1 = new THREE.Mesh(new THREE.SphereGeometry(2, 7, 7), m);
+    const p2 = new THREE.Mesh(new THREE.SphereGeometry(1.5, 7, 7), m); p2.position.set(1.8, 0.3, 0.2);
+    const p3 = new THREE.Mesh(new THREE.SphereGeometry(1.8, 7, 7), m); p3.position.set(-1.6, 0.2, -0.3);
+    const p4 = new THREE.Mesh(new THREE.SphereGeometry(1.3, 7, 7), m); p4.position.set(0.5, 0.8, 1.4);
+    const p5 = new THREE.Mesh(new THREE.SphereGeometry(1.3, 7, 7), m); p5.position.set(-0.3, 0.6, -1.6);
+    g.add(p1, p2, p3, p4, p5);
+    g.position.set(x, y, z);
+    g.scale.setScalar(scale);
+    return g;
+}
+
+for (let i = 0; i < 60; i++) {
+    const c = createCloud((Math.random() - 0.5) * 600, 15 + Math.random() * 50, (Math.random() - 0.5) * 600, 0.8 + Math.random() * 2.5);
+    scene.add(c);
+    clouds.push(c);
+}
+
+// ============================================================
+// 🎯 第6段：收集环圈（得分道具）
+// ============================================================
+
+const rings = [];
+const ringMat = new THREE.MeshStandardMaterial({
+    color: 0xffaa00, emissive: 0xff6600, emissiveIntensity: 0.3,
+    metalness: 0.6, roughness: 0.3, transparent: true, opacity: 0.9, side: THREE.DoubleSide
+});
+
+function createRing(x, y, z, rotationY) {
+    const torus = new THREE.Mesh(new THREE.TorusGeometry(2.5, 0.15, 8, 24), ringMat);
+    torus.position.set(x, y, z);
+    torus.rotation.x = Math.PI / 2;
+    torus.rotation.y = rotationY || 0;
+    torus.userData = { collected: false, bobOffset: Math.random() * Math.PI * 2 };
+    scene.add(torus);
+    rings.push(torus);
+
+    const glow = new THREE.Mesh(new THREE.TorusGeometry(2.8, 0.5, 8, 24),
+        new THREE.MeshBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.15, side: THREE.DoubleSide }));
+    glow.position.copy(torus.position);
+    glow.rotation.copy(torus.rotation);
+    scene.add(glow);
+    torus.userData.glow = glow;
+    return torus;
+}
+
+for (let i = 0; i < 50; i++) {
+    createRing((Math.random() - 0.5) * 40, 8 + Math.random() * 35, -50 - i * 25 - Math.random() * 15, Math.random() * Math.PI * 2);
+}
+
+let ringSpawnZ = -50 - 50 * 25;
+
+function addMoreRings() {
+    for (let i = 0; i < 5; i++) {
+        createRing((Math.random() - 0.5) * 40, 8 + Math.random() * 35, ringSpawnZ - Math.random() * 15, Math.random() * Math.PI * 2);
+        ringSpawnZ -= 25;
+    }
+}
+
+// ============================================================
+// 🎮 第7段：游戏状态与控制
+// ============================================================
+
+const gameState = {
+    score: 0, speed: 0.6, baseSpeed: 0.6, maxSpeed: 1.8,
+    fuel: 100, alive: true, started: false,
+};
+
+const keys = { w: false, s: false, a: false, d: false };
+
+document.addEventListener('keydown', (e) => {
+    const key = e.key.toLowerCase();
+    if (key in keys) keys[key] = true;
+    if (key === ' ' && !gameState.started) startGame();
+});
+
+document.addEventListener('keyup', (e) => {
+    const key = e.key.toLowerCase();
+    if (key in keys) keys[key] = false;
+});
+
+let mouseX = 0, mouseY = 0, targetMouseX = 0, targetMouseY = 0;
+
+document.addEventListener('mousemove', (e) => {
+    if (!gameState.started) return;
+    targetMouseX = (e.clientX / window.innerWidth) * 2 - 1;
+    targetMouseY = (e.clientY / window.innerHeight) * 2 - 1;
+});
+
+// ============================================================
+// 💥 第8段：碰撞检测与游戏逻辑
+// ============================================================
+
+function checkRingCollisions() {
+    const planePos = aircraft.position;
+    for (let i = rings.length - 1; i >= 0; i--) {
+        const ring = rings[i];
+        if (ring.userData.collected) continue;
+        if (planePos.distanceTo(ring.position) < 3.5) {
+            ring.userData.collected = true;
+            ring.visible = false;
+            if (ring.userData.glow) ring.userData.glow.visible = false;
+            gameState.score += 100;
+            updateUI();
+            createScoreEffect(ring.position.clone());
+        }
+    }
+}
+
+function createScoreEffect(position) {
+    if (!window.scoreParticles) window.scoreParticles = [];
+    for (let i = 0; i < 20; i++) {
+        const p = new THREE.Mesh(new THREE.SphereGeometry(0.1, 4, 4),
+            new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 1 }));
+        p.position.copy(position);
+        p.userData.velocity = new THREE.Vector3((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
+        p.userData.life = 1.0;
+        scene.add(p);
+        window.scoreParticles.push(p);
+    }
+}
+
+function updateScoreParticles(delta) {
+    if (!window.scoreParticles) return;
+    for (let i = window.scoreParticles.length - 1; i >= 0; i--) {
+        const p = window.scoreParticles[i];
+        p.userData.life -= delta * 1.5;
+        p.position.add(p.userData.velocity.clone().multiplyScalar(delta));
+        p.userData.velocity.y -= delta * 5;
+        p.material.opacity = Math.max(0, p.userData.life);
+        p.scale.setScalar(p.userData.life);
+        if (p.userData.life <= 0) {
+            scene.remove(p);
+            p.geometry.dispose();
+            p.material.dispose();
+            window.scoreParticles.splice(i, 1);
+        }
+    }
+}
+
+function checkBoundary() {
+    const pos = aircraft.position;
+    if (pos.y < 1) { pos.y = 1; if (gameState.speed > 0.3) gameState.speed *= 0.9; }
+    if (pos.y > 100) { pos.y = 100; gameState.speed *= 0.95; }
+    const hd = Math.sqrt(pos.x * pos.x + pos.z * pos.z);
+    if (hd > 400) {
+        const dir = new THREE.Vector3(-pos.x, 0, -pos.z).normalize();
+        pos.x += dir.x * 0.5; pos.z += dir.z * 0.5;
+    }
+}
+
+// ============================================================
+// 📊 第9段：UI更新
+// ============================================================
+
+function updateUI() {
+    document.getElementById('score-value').textContent = gameState.score;
+    document.getElementById('speed-value').textContent = Math.round(gameState.speed * 100);
+    document.getElementById('fuel-bar').style.width = Math.max(0, gameState.fuel) + '%';
+}
+
+function showGameOver() {
+    gameState.alive = false;
+    document.getElementById('final-score').textContent = gameState.score;
+    document.getElementById('game-over').style.display = 'flex';
+}
+
+function startGame() {
+    gameState.started = true;
+    gameState.alive = true;
+    gameState.score = 0;
+    gameState.speed = 0.6;
+    gameState.fuel = 100;
+    aircraft.position.set(0, 20, 0);
+    aircraft.rotation.set(0, 0, 0);
+    document.getElementById('start-screen').style.display = 'none';
+    document.getElementById('game-over').style.display = 'none';
+    updateUI();
+}
+
+document.getElementById('start-btn').addEventListener('click', startGame);
+document.getElementById('restart-btn').addEventListener('click', startGame);
+
+// ============================================================
+// 🔄 第10段：动画主循环
+// ============================================================
+
+let lastTime = 0;
+
+function animate(time) {
+    requestAnimationFrame(animate);
+
+    const delta = Math.min((time - lastTime) / 1000, 0.05);
+    lastTime = time;
+
+    if (!gameState.started) {
+        const angle = time * 0.0003;
+        camera.position.set(Math.sin(angle) * 20, 10, Math.cos(angle) * 20);
+        camera.lookAt(aircraft.position);
+        renderer.render(scene, camera);
+        return;
+    }
+
+    if (!gameState.alive) {
+        renderer.render(scene, camera);
+        return;
+    }
+
+    // 燃料
+    gameState.fuel -= delta * 0.15;
+    if (gameState.fuel <= 0) { gameState.fuel = 0; gameState.speed = Math.max(0.1, gameState.speed - delta * 0.2); }
+    updateUI();
+
+    if (gameState.fuel > 0) gameState.speed = gameState.baseSpeed + (gameState.fuel / 100) * 0.5;
+    gameState.speed = Math.min(gameState.speed, gameState.maxSpeed);
+
+    // 螺旋桨
+    if (propeller) propeller.rotation.z += delta * 30 * gameState.speed;
+
+    // 飞行控制
+    let pitchInput = 0, yawInput = 0;
+    if (keys.w) pitchInput -= 1;
+    if (keys.s) pitchInput += 1;
+    if (keys.a) yawInput -= 1;
+    if (keys.d) yawInput += 1;
+
+    mouseX += (targetMouseX - mouseX) * delta * 3;
+    mouseY += (targetMouseY - mouseY) * delta * 3;
+    yawInput += mouseX * 1.2;
+    pitchInput += -mouseY * 0.8;
+
+    pitchInput = Math.max(-1, Math.min(1, pitchInput));
+    yawInput = Math.max(-1, Math.min(1, yawInput));
+
+    // 应用俯仰
+    aircraft.quaternion.multiply(
+        new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), pitchInput * 1.5 * delta)
+    );
+    // 应用偏航
+    aircraft.quaternion.multiply(
+        new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawInput * 1.2 * delta)
+    );
+
+    // 自动滚转回正
+    const forward = new THREE.Vector3(0, 0, -1);
+    forward.applyQuaternion(aircraft.quaternion);
+    const right = new THREE.Vector3(1, 0, 0);
+    right.applyQuaternion(aircraft.quaternion);
+    const targetRoll = -yawInput * 0.4;
+    const rollError = targetRoll - right.y;
+    aircraft.quaternion.multiply(
+        new THREE.Quaternion().setFromAxisAngle(forward, rollError * delta * 2.0)
+    );
+    aircraft.quaternion.normalize();
+
+    // 移动
+    const moveDir = new THREE.Vector3(0, 0, -1);
+    moveDir.applyQuaternion(aircraft.quaternion);
+    moveDir.y *= 0.8;
+    moveDir.normalize();
+    aircraft.position.add(moveDir.multiplyScalar(gameState.speed * 15 * delta));
+
+    checkBoundary();
+    checkRingCollisions();
+
+    // 云朵动画
+    clouds.forEach((cloud, i) => {
+        cloud.position.y += Math.sin(time * 0.0005 + i) * delta * 0.1;
+        cloud.rotation.y += delta * 0.005;
+    });
+
+    // 环圈动画
+    rings.forEach((ring) => {
+        if (ring.userData.collected) return;
+        ring.rotation.z = Math.sin(time * 0.001 + ring.userData.bobOffset) * 0.1;
+        ring.position.y += Math.sin(time * 0.001 + ring.userData.bobOffset) * delta * 0.3;
+        if (ring.userData.glow) {
+            ring.userData.glow.rotation.z = ring.rotation.z;
+            ring.userData.glow.position.y = ring.position.y;
+        }
+    });
+
+    // 动态生成环圈
+    let maxRingZ = -Infinity;
+    rings.forEach(r => { if (r.position.z < maxRingZ) maxRingZ = r.position.z; });
+    if (aircraft.position.z - maxRingZ < 200) addMoreRings();
+
+    // 清理远处环圈
+    for (let i = rings.length - 1; i >= 0; i--) {
+        const ring = rings[i];
+        if (ring.position.z > aircraft.position.z + 50) {
+            if (ring.userData.glow) {
+                scene.remove(ring.userData.glow);
+                ring.userData.glow.geometry.dispose();
+                ring.userData.glow.material.dispose();
+            }
+            scene.remove(ring);
+            ring.geometry.dispose();
+            ring.material.dispose();
+            rings.splice(i, 1);
+        }
+    }
+
+    updateScoreParticles(delta);
+
+    // 相机跟随
+    const idealOffset = new THREE.Vector3(0, 4, 12);
+    idealOffset.applyQuaternion(aircraft.quaternion);
+    idealOffset.add(aircraft.position);
+    camera.position.lerp(idealOffset, delta * 4);
+
+    const lookTarget = new THREE.Vector3(0, 2, -20);
+    lookTarget.applyQuaternion(aircraft.quaternion);
+    lookTarget.add(aircraft.position);
+    camera.lookAt(lookTarget);
+
+    renderer.render(scene, camera);
+}
+
+animate(0);
+</script>
+
+</body>
+</html>
