@@ -3,6 +3,11 @@ import OpenAI from "openai";
 import readline from "readline";
 import { skills, initBuiltinSkills, loadExternalSkills } from "./skills";
 import { registerSubAgentSkills } from "./sub-agent";
+import {
+  loadMemoryIndex,
+  recallMemories,
+  registerMemorySkills,
+} from "./memory";
 import { initBuiltinMCP, loadExternalMCP } from "./mcp";
 import { loadMCPBridge, closeMCPBridge } from "./mcp-bridge";
 import {
@@ -199,8 +204,26 @@ export async function agentLoop(
     // 主 Agent：只注册派发类工具
     registerSubAgentSkills();
   }
+  // 两种 Agent 都可以读写记忆
+  registerMemorySkills();
 
   await initLog(userPrompt, logLabel ?? (isSubTask ? "子Agent" : "主Agent"));
+
+  // 并行预取记忆（与后续初始化并行）
+  const [memoryIndex, recallPromise] = [
+    await loadMemoryIndex(),
+    recallMemories(userPrompt),
+  ];
+
+  const memorySection = (index: string, recalled: string) => {
+    const parts: string[] = [];
+    if (index) parts.push(`## 记忆索引\n${index}`);
+    if (recalled) parts.push(`## 相关记忆\n${recalled}`);
+    return parts.length ? `\n\n${parts.join("\n\n")}` : "";
+  };
+
+  // 第一次 LLM 调用前 await 记忆召回结果
+  const recalled = await recallPromise;
 
   const systemPrompt = isSubTask
     ? `你是执行型子Agent，工作目录：${WORK_DIR}
@@ -209,7 +232,7 @@ export async function agentLoop(
 2. 删除文件必须调用 delete_file（会等待用户确认）
 3. 敏感 bash 命令（rm/mv/chmod 等）会触发终端确认，未确认前不要假定已执行
 4. 任务未完成时持续调用工具，不要主动结束
-5. 完成后输出执行结果摘要
+5. 完成后输出执行结果摘要${memorySection(memoryIndex, recalled)}
 子任务内容：${userPrompt}`
     : `你是规划型主Agent，工作目录：${WORK_DIR}
 规则：
@@ -217,6 +240,7 @@ export async function agentLoop(
 2. 通过 run_subtasks 并行派发给子Agent执行，每个子任务描述必须完整、自包含
 3. 汇总所有子任务结果，向用户输出结构化总结
 4. 不要自己执行具体操作，所有执行都交给子Agent完成
+5. 发现值得记住的用户偏好或行为反馈时，调用 save_memory 保存${memorySection(memoryIndex, recalled)}
 用户需求：${userPrompt}`;
 
   try {

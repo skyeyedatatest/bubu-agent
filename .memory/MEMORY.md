@@ -1,0 +1,1 @@
+- [user] user_userrunningpreference.md (2026-05-22): 用户喜欢跑步运动
