@@ -1,7 +1,8 @@
 import path from "path";
 import { fileURLToPath } from "url";
-import { spawn } from "child_process";
+import { spawn, type ChildProcess } from "child_process";
 import { registerSkill } from "./skills";
+import { enqueueConfirm } from "./confirm-queue";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RUNNER = path.join(__dirname, "sub-agent-runner.ts");
@@ -17,27 +18,54 @@ type SubTask = {
 // ====================== 子 Agent 执行 ======================
 function runSubAgent(task: SubTask): Promise<string> {
   return new Promise((resolve) => {
-    const child = spawn("tsx", [RUNNER, task.prompt, task.id], {
+    const child: ChildProcess = spawn("tsx", [RUNNER, task.prompt, task.id], {
       cwd: task.cwd ?? process.cwd(),
-      stdio: "pipe",
+      // stdin ignore：确认走 IPC，stdout/stderr 管道捕获输出，ipc 通道传确认消息
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
       env: process.env,
     });
 
-    let output = "";
-
-    child.stdout.on("data", (data: Buffer) => {
-      const chunk = data.toString();
-      process.stdout.write(`  [子任务 ${task.id}] ${chunk}`);
-      output += chunk;
+    // 收到子进程的确认请求，排入串行队列后回复
+    child.on("message", async (msg: unknown) => {
+      const m = msg as { type: string; id: string; cmd: string };
+      if (m?.type === "confirm_request") {
+        const answer = await enqueueConfirm(m.cmd);
+        child.send({ type: "confirm_reply", id: m.id, answer });
+      }
     });
 
-    child.stderr.on("data", (data: Buffer) => {
+    let output = "";
+    const prefix = `[子任务 ${task.id}] `;
+
+    // 按行加前缀，避免流式 token 每个词都打一次标签
+    function prefixLines(chunk: string, tag: string): string {
+      return chunk
+        .split("\n")
+        .map((line, i, arr) =>
+          // 最后一个空片段（换行结尾）不加前缀
+          i === arr.length - 1 && line === "" ? "" : tag + line,
+        )
+        .join("\n");
+    }
+
+    let stdoutBuf = "";
+    child.stdout!.on("data", (data: Buffer) => {
+      stdoutBuf += data.toString();
+      output += data.toString();
+      // 每次有完整行时才输出
+      const lines = stdoutBuf.split("\n");
+      stdoutBuf = lines.pop()!; // 保留未完成的行
+      if (lines.length) process.stdout.write(prefixLines(lines.join("\n") + "\n", prefix));
+    });
+
+    child.stderr!.on("data", (data: Buffer) => {
       const chunk = data.toString();
-      process.stderr.write(`  [子任务 ${task.id} ERR] ${chunk}`);
       output += chunk;
+      process.stderr.write(prefixLines(chunk, `[子任务 ${task.id} ERR] `));
     });
 
     child.on("close", (code) => {
+      if (stdoutBuf) process.stdout.write(prefix + stdoutBuf + "\n");
       resolve(`【子任务 ${task.id} 完成 exit=${code}】\n${output}`);
     });
 

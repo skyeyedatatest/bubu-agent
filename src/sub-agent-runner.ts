@@ -11,4 +11,27 @@ if (!prompt) {
   process.exit(1);
 }
 
-await agentLoop(prompt, { isSubTask: true, logLabel: `子任务-${taskId}` });
+// 通过 IPC 向父进程请求确认，避免多子进程争抢 stdin
+function confirmViaIPC(cmd: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const id = `${Date.now()}-${Math.random()}`;
+    process.send!({ type: "confirm_request", id, cmd });
+    const handler = (msg: unknown) => {
+      const m = msg as { type: string; id: string; answer: boolean };
+      if (m?.type === "confirm_reply" && m.id === id) {
+        process.off("message", handler);
+        resolve(m.answer);
+      }
+    };
+    process.on("message", handler);
+  });
+}
+
+agentLoop(prompt, {
+  isSubTask: true,
+  logLabel: `子任务-${taskId}`,
+  confirmFn: confirmViaIPC,
+}).catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

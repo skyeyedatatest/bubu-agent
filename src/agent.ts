@@ -176,6 +176,8 @@ export type AgentLoopOptions = {
   interactive?: boolean;
   /** 日志标签，用于区分主 Agent 与子任务，默认 "主Agent" */
   logLabel?: string;
+  /** 自定义确认函数，子任务通过 IPC 传入以避免 stdin 冲突 */
+  confirmFn?: (cmd: string) => Promise<boolean>;
 };
 
 // ====================== 核心Agent主循环 ======================
@@ -183,29 +185,43 @@ export async function agentLoop(
   userPrompt: string,
   options: AgentLoopOptions = {},
 ) {
-  const { isSubTask = false, interactive = !isSubTask, logLabel } = options;
-  initBuiltinSkills(confirmOperation);
-  registerSubAgentSkills();
-  await loadExternalSkills();
-  initBuiltinMCP();
-  await loadExternalMCP();
-  await loadMCPBridge();
-  await initLog(userPrompt, logLabel);
+  const { isSubTask = false, interactive = !isSubTask, logLabel, confirmFn } = options;
+  const confirm = confirmFn ?? confirmOperation;
+
+  if (isSubTask) {
+    // 子 Agent：只注册执行类工具
+    initBuiltinSkills(confirm);
+    await loadExternalSkills();
+    initBuiltinMCP();
+    await loadExternalMCP();
+    await loadMCPBridge();
+  } else {
+    // 主 Agent：只注册派发类工具
+    registerSubAgentSkills();
+  }
+
+  await initLog(userPrompt, logLabel ?? (isSubTask ? "子Agent" : "主Agent"));
+
+  const systemPrompt = isSubTask
+    ? `你是执行型子Agent，工作目录：${WORK_DIR}
+规则：
+1. 严格使用提供的工具完成任务，不要规划或拆分，直接执行
+2. 删除文件必须调用 delete_file（会等待用户确认）
+3. 敏感 bash 命令（rm/mv/chmod 等）会触发终端确认，未确认前不要假定已执行
+4. 任务未完成时持续调用工具，不要主动结束
+5. 完成后输出执行结果摘要
+子任务内容：${userPrompt}`
+    : `你是规划型主Agent，工作目录：${WORK_DIR}
+规则：
+1. 分析用户需求，将任务拆解为若干独立子任务
+2. 通过 run_subtasks 并行派发给子Agent执行，每个子任务描述必须完整、自包含
+3. 汇总所有子任务结果，向用户输出结构化总结
+4. 不要自己执行具体操作，所有执行都交给子Agent完成
+用户需求：${userPrompt}`;
 
   try {
     const messages: Message[] = [
-      {
-        role: "user",
-        content: `你是复刻版Claude Code智能体，严格使用提供的skill工具完成开发任务。
-工作目录：${WORK_DIR}
-规则：
-1. 复杂任务自动拆分，调用子Agent并行处理
-2. 删除文件必须调用 delete_file 技能（会阻塞终端等待用户 y/yes 确认），禁止仅用文字询问确认
-3. 敏感 bash 命令（rm/mv/chmod 等）会触发终端确认，未确认前不要假定已执行
-4. 任务未完成时持续调用工具，不要主动结束
-5. 全部完成后输出结构化总结
-用户需求：${userPrompt}`,
-      },
+      { role: "user", content: systemPrompt },
     ];
 
     while (true) {
