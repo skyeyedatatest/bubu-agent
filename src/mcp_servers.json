@@ -9,6 +9,13 @@
         "/Users/hetao/Downloads",
         "/Users/hetao/Desktop"
       ]
+    },
+    "bing-cn-mcp-server": {
+      "type": "streamable_http",
+      "url": "https://mcp.api-inference.modelscope.net/e470e5075c4e42/mcp",
+      "headers": {
+        "Authorization": "Bearer ms-f912c80b-31f3-4234-bd6e-7c946dcdb7cb"
+      }
     }
   }
 }

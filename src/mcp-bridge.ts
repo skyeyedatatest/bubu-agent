@@ -2,14 +2,24 @@ import fs from "fs/promises";
 import path from "path";
 import { Client } from "@modelcontextprotocol/sdk/client";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp";
 import { registerSkill } from "./skills";
 
 // ====================== 类型定义 ======================
-type MCPServerConfig = {
+type StdioConfig = {
+  type?: "stdio";
   command: string;
   args?: string[];
   env?: Record<string, string>;
 };
+
+type StreamableHttpConfig = {
+  type: "streamable_http";
+  url: string;
+  headers?: Record<string, string>;
+};
+
+type MCPServerConfig = StdioConfig | StreamableHttpConfig;
 
 type MCPServersConfig = {
   mcpServers: Record<string, MCPServerConfig>;
@@ -25,9 +35,12 @@ const activeClients: Client[] = [];
  * 工具名称格式：<serverName>__<toolName>
  * 例如：filesystem__read_file
  */
-export async function loadMCPBridge(
-  configPath: string = path.join(process.cwd(), "mcp_servers.json"),
-) {
+const _defaultConfigPath = path.join(
+  path.dirname(new URL(import.meta.url).pathname),
+  "mcp_servers.json",
+);
+
+export async function loadMCPBridge(configPath: string = _defaultConfigPath) {
   let config: MCPServersConfig;
   try {
     const raw = await fs.readFile(configPath, "utf-8");
@@ -43,14 +56,22 @@ export async function loadMCPBridge(
 
   for (const [name, cfg] of servers) {
     try {
-      const transport = new StdioClientTransport({
-        command: cfg.command,
-        args: cfg.args ?? [],
-        env: {
-          ...(process.env as Record<string, string>),
-          ...(cfg.env ?? {}),
-        },
-      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let transport: any;
+      if (cfg.type === "streamable_http") {
+        transport = new StreamableHTTPClientTransport(new URL(cfg.url), {
+          requestInit: { headers: cfg.headers ?? {} },
+        });
+      } else {
+        transport = new StdioClientTransport({
+          command: cfg.command,
+          args: cfg.args ?? [],
+          env: {
+            ...(process.env as Record<string, string>),
+            ...(cfg.env ?? {}),
+          },
+        });
+      }
 
       const client = new Client({ name: "my-agent", version: "1.0.0" });
       await client.connect(transport);
