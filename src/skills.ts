@@ -36,23 +36,55 @@ export function registerSkill(skill: Skill) {
   skills.push(skill);
 }
 
-// ====================== 加载 Skills ======================
+// ====================== 技能索引（按需加载）======================
+
+type SkillIndexEntry = {
+  description: string;
+  load: () => Promise<void>;
+};
+
+const _skillIndex = new Map<string, SkillIndexEntry>();
+
+/** 返回已索引但尚未加载的技能列表 */
+export function getUnloadedSkills(): Array<{ name: string; description: string }> {
+  return Array.from(_skillIndex.entries()).map(([name, e]) => ({
+    name,
+    description: e.description,
+  }));
+}
+
+/** 注册 load_skill 元工具，LLM 调用后动态激活指定技能 */
+export function registerLoadSkillTool() {
+  registerSkill({
+    name: "load_skill",
+    description:
+      "按需加载并激活一个技能。加载后该技能立即可用，可直接调用。",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "要加载的技能名称" },
+      },
+      required: ["name"],
+    },
+    handler: async (args: { name: string }) => {
+      const entry = _skillIndex.get(args.name);
+      if (!entry) {
+        const available = Array.from(_skillIndex.keys()).join(", ");
+        return available
+          ? `❌ 未找到技能 "${args.name}"。索引中可用：${available}`
+          : `❌ 未找到技能 "${args.name}"，索引为空`;
+      }
+      await entry.load();
+      return `✅ 技能 "${args.name}" 已加载，可直接调用`;
+    },
+  });
+}
+
+// ====================== 立即加载 skills/（用户自定义技能）======================
+
 /**
- * 从指定目录动态加载 skill 文件。
- *
- * 每个 skill 文件需 export default 以下两种格式之一：
- *   - 单个 Skill 对象：{ name, description, input_schema, handler }
- *   - Skill 数组：[{ name, ... }, ...]
- *
- * 示例文件 skills/hello.ts：
- *   import type { Skill } from "../skills";
- *   const skill: Skill = {
- *     name: "hello",
- *     description: "打招呼",
- *     input_schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
- *     handler: async (args) => `Hello, ${args.name}!`,
- *   };
- *   export default skill;
+ * 扫描 skills/ 目录，立即注册所有技能。
+ * 用户自定义技能专为当前项目编写，默认全部可用。
  */
 export async function loadExternalSkills(
   skillsDir: string = path.join(process.cwd(), "skills"),
@@ -60,45 +92,35 @@ export async function loadExternalSkills(
   try {
     await fs.access(skillsDir);
   } catch {
-    return; // skills 目录不存在，静默跳过
+    return;
   }
 
   const files = (await fs.readdir(skillsDir)).filter(
     (f) => f.endsWith(".ts") || f.endsWith(".js"),
   );
 
-  if (files.length === 0) return;
-
   for (const file of files) {
     const filePath = path.join(skillsDir, file);
     try {
-      // ts-node 环境下可直接 import .ts 文件
       const mod = await import(filePath);
       const exported: Skill | Skill[] | undefined =
         mod.default ?? mod.skill ?? mod.skills;
 
-      if (Array.isArray(exported)) {
-        let count = 0;
-        for (const s of exported) {
-          if (isValidSkill(s)) {
-            registerSkill(s);
-            count++;
-          } else {
-            console.warn(`⚠️  ${file} 中存在无效 skill 对象，已跳过`);
-          }
-        }
-        if (count > 0) console.log(`  ✅ ${file} → 加载 ${count} 个技能`);
-      } else if (isValidSkill(exported)) {
-        registerSkill(exported!);
-        console.log(`  ✅ ${file} → 加载技能：${exported!.name}`);
-      } else {
-        console.warn(`  ⚠️  ${file} 未导出合法 skill，已跳过`);
-      }
+      const list: Skill[] = Array.isArray(exported)
+        ? exported.filter(isValidSkill)
+        : isValidSkill(exported)
+          ? [exported!]
+          : [];
+
+      for (const s of list) registerSkill(s);
     } catch (e: any) {
       console.error(`  ❌ 加载失败：${file} — ${e.message}`);
     }
   }
 }
+
+/** 别名，供需要按需加载行为的场景使用 */
+export const indexExternalSkills = loadExternalSkills;
 
 function isValidSkill(s: any): s is Skill {
   return (
@@ -107,6 +129,86 @@ function isValidSkill(s: any): s is Skill {
     typeof s.description === "string" &&
     typeof s.handler === "function"
   );
+}
+
+// ====================== 索引 .third-party-skills（按需加载）======================
+
+/**
+ * 扫描 .third-party-skills/ 目录，将 SKILL.md 包存入索引，不立即注册。
+ */
+export async function indexThirdPartySkills(
+  baseDir: string = path.join(process.cwd(), ".third-party-skills"),
+) {
+  try {
+    await fs.access(baseDir);
+  } catch {
+    return;
+  }
+
+  const entries = await fs.readdir(baseDir, { withFileTypes: true });
+  const pkgDirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+
+  for (const dir of pkgDirs) {
+    const skillMdPath = path.join(baseDir, dir, "SKILL.md");
+    try {
+      const raw = await fs.readFile(skillMdPath, "utf-8");
+      const { name, description, body } = parseSkillMd(raw);
+      if (!name || !description) continue;
+
+      const skillName = sanitizeSkillName(name);
+      if (_skillIndex.has(skillName) || skills.find((s) => s.name === skillName))
+        continue;
+
+      _skillIndex.set(skillName, {
+        description,
+        load: async () => {
+          registerSkill({
+            name: skillName,
+            description,
+            input_schema: {
+              type: "object",
+              properties: {
+                query: { type: "string", description: "具体要执行的操作或查询" },
+              },
+              required: [],
+            },
+            handler: async (_args) => body,
+          });
+          _skillIndex.delete(skillName);
+        },
+      });
+    } catch {
+      // 无 SKILL.md，跳过
+    }
+  }
+}
+
+/** 保留旧名称兼容调用 */
+export const loadThirdPartySkills = indexThirdPartySkills;
+
+/** 解析 SKILL.md frontmatter（--- ... --- 格式） */
+function parseSkillMd(raw: string): {
+  name: string;
+  description: string;
+  body: string;
+} {
+  const fmMatch = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  if (!fmMatch) return { name: "", description: "", body: raw };
+
+  const fm = fmMatch[1] ?? "";
+  const body = (fmMatch[2] ?? "").trim();
+
+  const get = (key: string) => {
+    const m = fm.match(new RegExp(`^${key}:\\s*(.+)$`, "m"));
+    return m ? (m[1] ?? "").trim().replace(/^["']|["']$/g, "") : "";
+  };
+
+  return { name: get("name"), description: get("description"), body };
+}
+
+/** skill name 只允许字母、数字、下划线、连字符 */
+function sanitizeSkillName(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "_");
 }
 
 // ====================== 内置核心技能 ======================

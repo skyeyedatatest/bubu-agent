@@ -4,7 +4,14 @@ import readline from "readline";
 import fs from "fs";
 import path from "path";
 import { promptWithFileCompletion } from "./input";
-import { skills, initBuiltinSkills, loadExternalSkills } from "./skills";
+import {
+  skills,
+  initBuiltinSkills,
+  loadExternalSkills,
+  indexThirdPartySkills,
+  registerLoadSkillTool,
+  getUnloadedSkills,
+} from "./skills";
 import { registerSubAgentSkills } from "./sub-agent";
 import {
   loadMemoryIndex,
@@ -205,9 +212,11 @@ export async function agentLoop(
   const confirm = confirmFn ?? confirmOperation;
 
   if (isSubTask) {
-    // 子 Agent：只注册执行类工具
+    // 子 Agent：内置技能立即加载，其余按需加载
     initBuiltinSkills(confirm);
-    await loadExternalSkills();
+    await loadExternalSkills();      // skills/ 立即加载
+    await indexThirdPartySkills();   // .third-party-skills/ 按需加载
+    registerLoadSkillTool();
     initBuiltinMCP();
     await loadExternalMCP();
     await loadMCPBridge();
@@ -236,6 +245,12 @@ export async function agentLoop(
   // 第一次 LLM 调用前 await 记忆召回结果
   const recalled = await recallPromise;
 
+  const unloadedSkills = getUnloadedSkills();
+  const skillsSection =
+    unloadedSkills.length > 0
+      ? `\n\n## 可按需加载的技能\n${unloadedSkills.map((s) => `- **${s.name}**: ${s.description}`).join("\n")}\n需要时调用 load_skill 加载后即可使用。`
+      : "";
+
   const systemPrompt = isSubTask
     ? `你是执行型子Agent，工作目录：${WORK_DIR}
 规则：
@@ -243,7 +258,7 @@ export async function agentLoop(
 2. 删除文件必须调用 delete_file（会等待用户确认）
 3. 敏感 bash 命令（rm/mv/chmod 等）会触发终端确认，未确认前不要假定已执行
 4. 任务未完成时持续调用工具，不要主动结束
-5. 完成后输出执行结果摘要${memorySection(memoryIndex, recalled)}
+5. 完成后输出执行结果摘要${memorySection(memoryIndex, recalled)}${skillsSection}
 子任务内容：${userPrompt}`
     : `你是规划型主Agent，工作目录：${WORK_DIR}
 规则：
