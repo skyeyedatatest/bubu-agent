@@ -1,18 +1,8 @@
-import readline from "readline";
 import { agentLoop, expandFileReferences } from "./agent";
+import { promptWithFileCompletion } from "./input";
 
 async function main() {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  const prompt = await new Promise<string>((resolve) => {
-    rl.question("🧑 请输入：", (ans) => {
-      rl.close();
-      resolve(ans.trim());
-    });
-  });
+  const prompt = await promptWithFileCompletion("🧑 请输入：");
 
   if (!prompt) {
     console.log("未输入，退出。");

@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import readline from "readline";
 import fs from "fs";
 import path from "path";
+import { promptWithFileCompletion } from "./input";
 import { skills, initBuiltinSkills, loadExternalSkills } from "./skills";
 import { registerSubAgentSkills } from "./sub-agent";
 import {
@@ -124,35 +125,10 @@ class StreamPrinter {
 }
 const streamPrinter = new StreamPrinter();
 
-// ====================== 2. 终端用户输入（持久 readline，避免 close 后进程退出） ======================
-let userInputRl: readline.Interface | null = null;
-
-function getUserInputRl(): readline.Interface {
-  if (!userInputRl) {
-    userInputRl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-  }
-  return userInputRl;
-}
-
-function promptUser(question: string): Promise<string> {
-  return new Promise((resolve) => {
-    getUserInputRl().question(question, (ans) => resolve(ans.trim()));
-  });
-}
-
-function closeUserInput(): void {
-  if (userInputRl) {
-    userInputRl.close();
-    userInputRl = null;
-  }
-}
-
+// ====================== 2. 终端用户输入 ======================
 async function confirmOperation(cmd: string): Promise<boolean> {
   console.log(`\n⚠️  敏感操作确认：${cmd}`);
-  const ans = await promptUser("是否执行？(y/N) ");
+  const ans = await promptWithFileCompletion("是否执行？(y/N) ");
   const lower = ans.toLowerCase();
   return lower === "y" || lower === "yes";
 }
@@ -391,7 +367,7 @@ export async function agentLoop(
       // 无工具调用：交互模式下等待用户输入再继续，否则结束
       if (!collectedToolCalls.length) {
         if (interactive && process.stdin.isTTY) {
-          const userReply = await promptUser(
+          const userReply = await promptWithFileCompletion(
             "\n👤 你的回复（直接回车结束任务）: ",
           );
           if (!userReply) {
@@ -445,7 +421,6 @@ export async function agentLoop(
       }
     }
   } finally {
-    closeUserInput();
     await closeMCPBridge();
   }
 }
