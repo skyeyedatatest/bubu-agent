@@ -1,5 +1,5 @@
 import readline from "readline";
-import { agentLoop } from "./agent";
+import { agentLoop, expandFileReferences } from "./agent";
 
 async function main() {
   const rl = readline.createInterface({
@@ -19,7 +19,8 @@ async function main() {
     process.exit(0);
   }
 
-  await agentLoop(prompt);
+  const expandedPrompt = await expandFileReferences(prompt);
+  await agentLoop(expandedPrompt);
 }
 
 main().catch((err) => {

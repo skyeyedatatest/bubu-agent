@@ -16,6 +16,18 @@ export type Skill = {
 // ====================== 技能注册表 ======================
 export const skills: Skill[] = [];
 
+// ====================== 全局 confirm 函数（供外部 skill 使用）======================
+let _globalConfirm: ((cmd: string) => Promise<boolean>) | null = null;
+
+export function setGlobalConfirm(fn: (cmd: string) => Promise<boolean>): void {
+  _globalConfirm = fn;
+}
+
+export async function globalConfirm(cmd: string): Promise<boolean> {
+  if (_globalConfirm) return _globalConfirm(cmd);
+  return true; // 无 confirm fn 时自动通过（子 Agent 初始化前不应调用）
+}
+
 export function registerSkill(skill: Skill) {
   if (skills.find((s) => s.name === skill.name)) {
     console.warn(`⚠️  Skill "${skill.name}" 已注册，跳过重复加载`);
@@ -24,9 +36,9 @@ export function registerSkill(skill: Skill) {
   skills.push(skill);
 }
 
-// ====================== 加载第三方 Skills ======================
+// ====================== 加载 Skills ======================
 /**
- * 从指定目录动态加载第三方 skill 文件。
+ * 从指定目录动态加载 skill 文件。
  *
  * 每个 skill 文件需 export default 以下两种格式之一：
  *   - 单个 Skill 对象：{ name, description, input_schema, handler }
@@ -56,8 +68,6 @@ export async function loadExternalSkills(
   );
 
   if (files.length === 0) return;
-
-  console.log(`\n📦 发现 ${files.length} 个第三方 skill 文件，开始加载...`);
 
   for (const file of files) {
     const filePath = path.join(skillsDir, file);
@@ -103,6 +113,7 @@ function isValidSkill(s: any): s is Skill {
 export function initBuiltinSkills(
   confirmOperation: (cmd: string) => Promise<boolean>,
 ) {
+  setGlobalConfirm(confirmOperation);
   const BAN_CMD = [
     "rm -rf /",
     "sudo ",

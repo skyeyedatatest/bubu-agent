@@ -222,6 +222,83 @@
         .btn-download:hover {
             transform: translateY(-2px);
             box-shadow: 0 8px 25px rgba(0, 184, 148, 0.45);
+        .btn-download:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 184, 148, 0.45);
+        }
+
+        /* ===== 录制按钮 ===== */
+        .btn-record {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+            color: #fff;
+            box-shadow: 0 4px 15px rgba(231, 76, 60, 0.3);
+        }
+        .btn-record:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(231, 76, 60, 0.45);
+        }
+        .btn-record:active {
+            transform: translateY(0);
+        }
+
+        /* 录制中脉冲动画 */
+        .btn-record.recording {
+            animation: pulse-record 1.2s ease-in-out infinite;
+        }
+        @keyframes pulse-record {
+            0% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.6); }
+            50% { box-shadow: 0 0 0 12px rgba(231, 76, 60, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
+        }
+
+        /* ===== 播放按钮 ===== */
+        .btn-play {
+            background: linear-gradient(135deg, #27ae60, #2ecc71);
+            color: #fff;
+            box-shadow: 0 4px 15px rgba(39, 174, 96, 0.3);
+        }
+        .btn-play:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(39, 174, 96, 0.45);
+        }
+        .btn-play:active {
+            transform: translateY(0);
+        }
+        .btn-play.playing {
+            animation: pulse-play 1s ease-in-out infinite;
+        }
+        @keyframes pulse-play {
+            0% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.5); }
+            50% { box-shadow: 0 0 0 10px rgba(39, 174, 96, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0); }
+        }
+
+        /* ===== 速度按钮组 ===== */
+        .speed-group {
+            display: flex;
+            gap: 4px;
+        }
+        .btn-speed {
+            padding: 6px 12px;
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            background: rgba(255,255,255,0.08);
+            color: rgba(255,255,255,0.6);
+            transition: all 0.2s ease;
+            letter-spacing: 0.3px;
+        }
+        .btn-speed:hover {
+            background: rgba(255,255,255,0.15);
+            color: #fff;
+        }
+        .btn-speed.active {
+            background: linear-gradient(135deg, #f093fb, #4facfe);
+            color: #fff;
+            border-color: transparent;
+            box-shadow: 0 4px 12px rgba(79, 172, 254, 0.3);
         }
 
         .canvas-wrap {
@@ -305,6 +382,16 @@
             <button class="btn btn-eraser" id="eraserBtn">🧹 橡皮擦</button>
             <button class="btn btn-clear" id="clearBtn">🗑 清空画布</button>
             <button class="btn btn-download" id="downloadBtn">⬇ 保存</button>
+
+            <div class="separator"></div>
+
+            <button class="btn btn-record" id="recordBtn">⏺ 录制</button>
+            <button class="btn btn-play" id="playBtn">▶ 播放</button>
+            <div class="speed-group">
+                <button class="btn-speed active" id="speed1x">1x</button>
+                <button class="btn-speed" id="speed05x">0.5x</button>
+                <button class="btn-speed" id="speed2x">2x</button>
+            </div>
         </div>
 
         <div class="canvas-wrap">
@@ -331,12 +418,25 @@
             const eraserBtn = document.getElementById('eraserBtn');
             const downloadBtn = document.getElementById('downloadBtn');
             const coordDisplay = document.getElementById('coordDisplay');
+            const recordBtn = document.getElementById('recordBtn');
+            const playBtn = document.getElementById('playBtn');
+            const speed05x = document.getElementById('speed05x');
+            const speed1x = document.getElementById('speed1x');
+            const speed2x = document.getElementById('speed2x');
 
             // ---------- 状态 ----------
             let isDrawing = false;
             let isEraser = false;
             let lastX = 0;
             let lastY = 0;
+
+            // ---------- 录制 / 回放 状态 ----------
+            const recordedStrokes = []; // Stroke[] 每个 Stroke = { points: [{x,y,time}], color, size, isEraser }
+            let isRecording = false;
+            let isPlaying = false;
+            let currentStroke = null;
+            let playbackSpeed = 1;
+            let playbackStartTime = 0;
 
             // ---------- 历史记录 (撤销) ----------
             const MAX_HISTORY = 30;
@@ -411,10 +511,21 @@
 
             function startDrawing(e) {
                 e.preventDefault();
+                if (isPlaying) return;
                 const { x, y } = getCanvasCoords(e);
                 isDrawing = true;
                 lastX = x;
                 lastY = y;
+
+                // 录制：开始新笔画
+                if (isRecording) {
+                    currentStroke = {
+                        points: [{ x, y, time: Date.now() }],
+                        color: isEraser ? '#ffffff' : colorPicker.value,
+                        size: parseInt(brushSize.value) || 1,
+                        isEraser: isEraser
+                    };
+                }
 
                 // 画一个点（点击时也留下痕迹）
                 ctx.beginPath();
@@ -429,10 +540,16 @@
 
             function draw(e) {
                 e.preventDefault();
+                if (isPlaying) return;
                 if (!isDrawing) return;
 
                 const { x, y } = getCanvasCoords(e);
                 const size = parseInt(brushSize.value) || 1;
+
+                // 录制：记录路径点
+                if (isRecording && currentStroke) {
+                    currentStroke.points.push({ x, y, time: Date.now() });
+                }
 
                 ctx.beginPath();
                 ctx.moveTo(lastX, lastY);
@@ -456,23 +573,179 @@
             function stopDrawing(e) {
                 if (isDrawing) {
                     isDrawing = false;
+                    // 录制：结束当前笔画
+                    if (isRecording && currentStroke) {
+                        recordedStrokes.push(currentStroke);
+                        currentStroke = null;
+                    }
                     saveState();
                 }
             }
 
             // ---------- 清空 ----------
             function clearCanvas() {
+                // 停止录制
+                if (isRecording) {
+                    isRecording = false;
+                    recordBtn.textContent = '⏺ 录制';
+                    recordBtn.classList.remove('recording');
+                }
+                // 停止播放
+                if (isPlaying) {
+                    isPlaying = false;
+                    playBtn.textContent = '▶ 播放';
+                    playBtn.classList.remove('playing');
+                }
+                // 清空录制数据
+                recordedStrokes.length = 0;
+                currentStroke = null;
+                // 清空画布
                 ctx.fillStyle = '#ffffff';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                 saveState();
             }
 
+            // ---------- 撤销（录制时停止录制） ----------
+            function undo() {
+                if (isRecording) {
+                    isRecording = false;
+                    recordBtn.textContent = '⏺ 录制';
+                    recordBtn.classList.remove('recording');
+                }
+                if (historyIndex > 0) {
+                    restoreState(historyIndex - 1);
+                } else {
+                    // 已经是最早的状态，轻微提示
+                    canvas.style.transition = 'box-shadow 0.15s';
+                    canvas.style.boxShadow = 'inset 0 0 0 2px #f5576c';
+                    setTimeout(() => {
+                        canvas.style.boxShadow = 'none';
+                    }, 300);
+                }
+            }
+
             // ---------- 下载 ----------
             function downloadCanvas() {
+                // 如果正在播放，暂停播放
+                if (isPlaying) {
+                    isPlaying = false;
+                    playBtn.textContent = '▶ 播放';
+                    playBtn.classList.remove('playing');
+                }
                 const link = document.createElement('a');
                 link.download = '我的画作.png';
                 link.href = canvas.toDataURL('image/png');
                 link.click();
+            }
+
+            // ========== 录制 / 回放 ==========
+
+            // ---------- 开始/停止录制 ----------
+            function toggleRecording() {
+                if (isPlaying) return; // 播放时禁用
+                if (isRecording) {
+                    // 停止录制
+                    isRecording = false;
+                    recordBtn.textContent = '⏺ 录制';
+                    recordBtn.classList.remove('recording');
+                } else {
+                    // 开始录制 - 清空之前数据
+                    recordedStrokes.length = 0;
+                    currentStroke = null;
+                    isRecording = true;
+                    recordBtn.textContent = '⏹ 停止';
+                    recordBtn.classList.add('recording');
+                    // 如果画布有内容，以当前画布为起始状态（录制时不处理背景）
+                }
+            }
+
+            // ---------- 回放动画 ----------
+            function startPlayback() {
+                if (recordedStrokes.length === 0) return;
+                // 如果正在录制，先停止录制
+                if (isRecording) {
+                    isRecording = false;
+                    recordBtn.textContent = '⏺ 录制';
+                    recordBtn.classList.remove('recording');
+                }
+                if (isPlaying) {
+                    // 暂停
+                    isPlaying = false;
+                    playBtn.textContent = '▶ 播放';
+                    playBtn.classList.remove('playing');
+                    return;
+                }
+                isPlaying = true;
+                playBtn.textContent = '⏸ 暂停';
+                playBtn.classList.add('playing');
+
+                // 清空画布为白色
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                const firstPointTime = recordedStrokes[0].points[0].time;
+                const lastStroke = recordedStrokes[recordedStrokes.length - 1];
+                const lastPointTime = lastStroke.points[lastStroke.points.length - 1].time;
+                const totalDuration = lastPointTime - firstPointTime;
+
+                playbackStartTime = performance.now();
+
+                function playbackFrame(now) {
+                    if (!isPlaying) return;
+                    const elapsed = (now - playbackStartTime) * playbackSpeed;
+                    const targetTime = firstPointTime + elapsed;
+
+                    // 清空画布为白色
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                    // 遍历所有 strokes，画出所有时间 <= targetTime 的点
+                    for (const stroke of recordedStrokes) {
+                        const pts = stroke.points;
+                        // 找到这个 stroke 中应该画到的点索引
+                        let drawToIndex = -1;
+                        for (let i = 0; i < pts.length; i++) {
+                            if (pts[i].time <= targetTime) {
+                                drawToIndex = i;
+                            } else {
+                                break;
+                            }
+                        }
+                        if (drawToIndex >= 0) {
+                            // 从第一个点画到 drawToIndex
+                            ctx.beginPath();
+                            ctx.moveTo(pts[0].x, pts[0].y);
+                            for (let i = 1; i <= drawToIndex; i++) {
+                                ctx.lineTo(pts[i].x, pts[i].y);
+                            }
+                            ctx.strokeStyle = stroke.isEraser ? '#ffffff' : stroke.color;
+                            ctx.lineWidth = stroke.size;
+                            ctx.lineCap = 'round';
+                            ctx.lineJoin = 'round';
+                            ctx.stroke();
+                        }
+                    }
+
+                    if (elapsed < totalDuration) {
+                        requestAnimationFrame(playbackFrame);
+                    } else {
+                        // 播放结束
+                        isPlaying = false;
+                        playBtn.textContent = '▶ 播放';
+                        playBtn.classList.remove('playing');
+                    }
+                }
+                requestAnimationFrame(playbackFrame);
+            }
+
+            // ---------- 速度切换 ----------
+            function setSpeed(speed) {
+                playbackSpeed = speed;
+                // 更新高亮
+                [speed05x, speed1x, speed2x].forEach(btn => btn.classList.remove('active'));
+                if (speed === 0.5) speed05x.classList.add('active');
+                else if (speed === 1) speed1x.classList.add('active');
+                else if (speed === 2) speed2x.classList.add('active');
             }
 
             // ---------- 事件绑定 ----------
@@ -533,6 +806,17 @@
             // 下载
             downloadBtn.addEventListener('click', downloadCanvas);
 
+            // 录制
+            recordBtn.addEventListener('click', toggleRecording);
+
+            // 播放
+            playBtn.addEventListener('click', startPlayback);
+
+            // 速度切换
+            speed05x.addEventListener('click', function() { setSpeed(0.5); });
+            speed1x.addEventListener('click', function() { setSpeed(1); });
+            speed2x.addEventListener('click', function() { setSpeed(2); });
+
             // 键盘快捷键
             document.addEventListener('keydown', function(e) {
                 // Ctrl+Z 撤销
@@ -543,6 +827,15 @@
                 // E 切换橡皮擦
                 if (e.key === 'e' || e.key === 'E') {
                     eraserBtn.click();
+                }
+                // R 切换录制
+                if (e.key === 'r' || e.key === 'R') {
+                    recordBtn.click();
+                }
+                // Space 切换播放
+                if (e.key === ' ' && e.target === document.body) {
+                    e.preventDefault();
+                    playBtn.click();
                 }
             });
 

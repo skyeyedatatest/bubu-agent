@@ -1,6 +1,8 @@
 import "dotenv/config";
 import OpenAI from "openai";
 import readline from "readline";
+import fs from "fs";
+import path from "path";
 import { skills, initBuiltinSkills, loadExternalSkills } from "./skills";
 import { registerSubAgentSkills } from "./sub-agent";
 import {
@@ -63,6 +65,39 @@ function toAPIMessage(m: Message): any {
     };
   }
   return { role: "user", content: m.content ?? "" };
+}
+
+// ====================== 0. @文件引用展开 ======================
+export async function expandFileReferences(input: string): Promise<string> {
+  const pattern = /@([^\s@,;:]+)/g;
+  const matches = [...input.matchAll(pattern)];
+  if (!matches.length) return input;
+
+  const parts: string[] = [];
+  let lastIndex = 0;
+
+  for (const match of matches) {
+    const filePath = match[1] ?? "";
+    const startIdx = match.index ?? 0;
+    const fullPath = path.isAbsolute(filePath)
+      ? filePath
+      : path.join(WORK_DIR, filePath);
+
+    parts.push(input.slice(lastIndex, startIdx));
+
+    try {
+      const content = fs.readFileSync(fullPath, "utf-8");
+      console.log(`📎 已附加文件：${filePath}`);
+      parts.push(`@${filePath}\n\`\`\`\n${content}\n\`\`\``);
+    } catch {
+      parts.push(match[0]); // 文件不存在则保留原文
+    }
+
+    lastIndex = startIdx + match[0].length;
+  }
+
+  parts.push(input.slice(lastIndex));
+  return parts.join("");
 }
 
 // ====================== 1. 终端流式打印工具 ======================
@@ -364,8 +399,9 @@ export async function agentLoop(
             await logDone();
             return;
           }
-          await logUser(userReply);
-          messages.push({ role: "user", content: userReply });
+          const expandedReply = await expandFileReferences(userReply);
+          await logUser(expandedReply);
+          messages.push({ role: "user", content: expandedReply });
           continue;
         }
         console.log("\n✅ 任务全部完成！最终总结：");
