@@ -2,8 +2,23 @@ import fs from "fs/promises";
 import path from "path";
 import type { Skill } from "../src/skills.js";
 import { globalConfirm } from "../src/skills.js";
+import { buildIndex, SYMBOLS_FILE } from "../src/code-index.js";
 
 const WORK_DIR = process.cwd();
+
+async function tryIncrementalIndex() {
+  try {
+    await fs.access(SYMBOLS_FILE);
+    await buildIndex(WORK_DIR, false);
+  } catch {
+    // 索引不存在 → 首次全量构建
+    try {
+      await buildIndex(WORK_DIR, false);
+    } catch {
+      // 构建失败，静默忽略
+    }
+  }
+}
 
 // ====================== 简易 diff 生成 ======================
 function buildDiff(
@@ -47,7 +62,6 @@ const writeFile: Skill = {
   }) => {
     const fullPath = path.resolve(WORK_DIR, args.filePath);
 
-    // 检查是否已存在
     let exists = false;
     try {
       await fs.access(fullPath);
@@ -61,12 +75,12 @@ const writeFile: Skill = {
       if (!ok) return `❌ 用户取消覆盖：${args.filePath}`;
     }
 
-    // 创建父目录
     if (args.createDirs !== false) {
       await fs.mkdir(path.dirname(fullPath), { recursive: true });
     }
 
     await fs.writeFile(fullPath, args.content, "utf-8");
+    await tryIncrementalIndex();
     const lineCount = args.content.split("\n").length;
     return `✅ ${exists ? "覆盖" : "创建"}文件：${args.filePath}（共 ${lineCount} 行）`;
   },
@@ -76,7 +90,8 @@ const writeFile: Skill = {
 const editFileLines: Skill = {
   name: "edit_file_lines",
   description:
-    "精准替换文件指定行范围（startLine~endLine，1-based，含两端）为新内容。" +
+    "【修改文件局部内容时优先使用此工具】按行号范围精准替换文件内容（startLine~endLine，1-based，含两端）。" +
+    "比文本匹配替换更可靠，不受重复内容干扰。" +
     "返回 diff 预览。newContent 为空字符串时等同于删除该范围。",
   input_schema: {
     type: "object",
@@ -114,8 +129,6 @@ const editFileLines: Skill = {
     }
 
     const clampEnd = Math.min(args.endLine, total);
-
-    // 0-based slicing
     const before = allLines.slice(0, args.startLine - 1);
     const removed = allLines.slice(args.startLine - 1, clampEnd);
     const after = allLines.slice(clampEnd);
@@ -123,10 +136,10 @@ const editFileLines: Skill = {
     const newLines = args.newContent === "" ? [] : args.newContent.split("\n");
     const result = [...before, ...newLines, ...after];
 
-    // Diff 预览
     const diff = buildDiff(removed, newLines, args.filePath, args.startLine, clampEnd);
 
     await fs.writeFile(fullPath, result.join("\n"), "utf-8");
+    await tryIncrementalIndex();
 
     const delta = newLines.length - removed.length;
     const deltaStr = delta === 0 ? "行数不变" : delta > 0 ? `+${delta} 行` : `${delta} 行`;

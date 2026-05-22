@@ -177,4 +177,63 @@ const listProjectFiles: Skill = {
   },
 };
 
-export default [readFileFragment, listProjectFiles];
+// ====================== list_directory ======================
+const listDirectory: Skill = {
+  name: "list_directory",
+  description:
+    "列出指定目录的文件和子目录（非递归，一层）。显示类型、大小、修改时间。",
+  input_schema: {
+    type: "object",
+    properties: {
+      dirPath: {
+        type: "string",
+        description: "目录路径（相对工作目录或绝对路径），默认为工作目录",
+      },
+    },
+  },
+  handler: async (args: { dirPath?: string }) => {
+    const target = args.dirPath
+      ? path.resolve(WORK_DIR, args.dirPath)
+      : WORK_DIR;
+
+    let entries;
+    try {
+      entries = await fs.readdir(target, { withFileTypes: true });
+    } catch (e: unknown) {
+      return `❌ 无法读取目录：${(e as Error).message}`;
+    }
+
+    if (entries.length === 0) return "（空目录）";
+
+    const rows = await Promise.all(
+      entries
+        .sort((a, b) => {
+          // 目录优先，再按名称排序
+          if (a.isDirectory() !== b.isDirectory())
+            return a.isDirectory() ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        })
+        .map(async (e) => {
+          const fullPath = path.join(target, e.name);
+          let extra = "";
+          try {
+            const stat = await fs.stat(fullPath);
+            if (e.isDirectory()) {
+              extra = "dir";
+            } else {
+              extra = `${(stat.size / 1024).toFixed(1)}KB  ${stat.mtime.toISOString().slice(0, 10)}`;
+            }
+          } catch {
+            extra = "?";
+          }
+          const prefix = e.isDirectory() ? "📁" : "📄";
+          return `${prefix} ${e.name.padEnd(36)} ${extra}`;
+        }),
+    );
+
+    const relLabel = args.dirPath ?? ".";
+    return `${relLabel}/\n${rows.join("\n")}`;
+  },
+};
+
+export default [readFileFragment, listProjectFiles, listDirectory];

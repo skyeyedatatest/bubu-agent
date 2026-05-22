@@ -243,7 +243,7 @@ export async function buildIndex(dir: string, force = false): Promise<BuildResul
   for (const file of files) {
     const content = await fs.readFile(file, "utf-8");
     const hash = md5(content);
-    const relPath = path.relative(WORK_DIR, file);
+    const relPath = path.relative(dir, file);
 
     if (!force && fileHashes[relPath] === hash) continue; // 未变更，跳过
 
@@ -254,7 +254,7 @@ export async function buildIndex(dir: string, force = false): Promise<BuildResul
   }
 
   // 清理已删除文件
-  const currentSet = new Set(files.map((f) => path.relative(WORK_DIR, f)));
+  const currentSet = new Set(files.map((f) => path.relative(dir, f)));
   for (const key of Object.keys(fileHashes)) {
     if (!currentSet.has(key)) {
       delete fileHashes[key];

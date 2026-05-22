@@ -1,0 +1,153 @@
+{
+  "version": "1.0",
+  "builtAt": "2026-05-22T12:31:45.996Z",
+  "symbols": [
+    {
+      "name": "ScreenRecorder",
+      "type": "class",
+      "filePath": "screen_recorder.py",
+      "startLine": 67,
+      "endLine": 377,
+      "language": "python",
+      "signature": "class ScreenRecorder:"
+    },
+    {
+      "name": "__init__",
+      "type": "function",
+      "filePath": "screen_recorder.py",
+      "startLine": 70,
+      "endLine": 100,
+      "language": "python",
+      "signature": "def __init__(self, area: tuple | None = None, fps: int = 15,"
+    },
+    {
+      "name": "_default_output_path",
+      "type": "function",
+      "filePath": "screen_recorder.py",
+      "startLine": 104,
+      "endLine": 108,
+      "language": "python",
+      "signature": "def _default_output_path() -> str:"
+    },
+    {
+      "name": "_countdown",
+      "type": "function",
+      "filePath": "screen_recorder.py",
+      "startLine": 110,
+      "endLine": 119,
+      "language": "python",
+      "signature": "def _countdown(seconds: int = 2):"
+    },
+    {
+      "name": "_setup_screen_input",
+      "type": "function",
+      "filePath": "screen_recorder.py",
+      "startLine": 122,
+      "endLine": 171,
+      "language": "python",
+      "signature": "def _setup_screen_input(self) -> bool:"
+    },
+    {
+      "name": "_setup_audio_input",
+      "type": "function",
+      "filePath": "screen_recorder.py",
+      "startLine": 172,
+      "endLine": 204,
+      "language": "python",
+      "signature": "def _setup_audio_input(self) -> bool:"
+    },
+    {
+      "name": "_setup_file_output",
+      "type": "function",
+      "filePath": "screen_recorder.py",
+      "startLine": 205,
+      "endLine": 217,
+      "language": "python",
+      "signature": "def _setup_file_output(self) -> bool:"
+    },
+    {
+      "name": "_listen_esc",
+      "type": "function",
+      "filePath": "screen_recorder.py",
+      "startLine": 220,
+      "endLine": 257,
+      "language": "python",
+      "signature": "def _listen_esc(self):"
+    },
+    {
+      "name": "key_handler",
+      "type": "function",
+      "filePath": "screen_recorder.py",
+      "startLine": 229,
+      "endLine": 235,
+      "language": "python",
+      "signature": "def key_handler(event):"
+    },
+    {
+      "name": "start",
+      "type": "function",
+      "filePath": "screen_recorder.py",
+      "startLine": 260,
+      "endLine": 298,
+      "language": "python",
+      "signature": "def start(self):"
+    },
+    {
+      "name": "stop",
+      "type": "function",
+      "filePath": "screen_recorder.py",
+      "startLine": 299,
+      "endLine": 322,
+      "language": "python",
+      "signature": "def stop(self):"
+    },
+    {
+      "name": "_convert_to_mp4",
+      "type": "function",
+      "filePath": "screen_recorder.py",
+      "startLine": 326,
+      "endLine": 369,
+      "language": "python",
+      "signature": "def _convert_to_mp4(mov_path: str, mp4_path: str):"
+    },
+    {
+      "name": "recording",
+      "type": "function",
+      "filePath": "screen_recorder.py",
+      "startLine": 373,
+      "endLine": 377,
+      "language": "python",
+      "signature": "def recording(self) -> bool:"
+    },
+    {
+      "name": "parse_area",
+      "type": "function",
+      "filePath": "screen_recorder.py",
+      "startLine": 382,
+      "endLine": 399,
+      "language": "python",
+      "signature": "def parse_area(text: str) -> tuple[int, int, int, int]:"
+    },
+    {
+      "name": "build_parser",
+      "type": "function",
+      "filePath": "screen_recorder.py",
+      "startLine": 400,
+      "endLine": 406,
+      "language": "python",
+      "signature": "def build_parser() -> argparse.ArgumentParser:"
+    },
+    {
+      "name": "main",
+      "type": "function",
+      "filePath": "screen_recorder.py",
+      "startLine": 448,
+      "endLine": 487,
+      "language": "python",
+      "signature": "def main():"
+    }
+  ],
+  "fileHashes": {
+    "screen_recorder.py": "d3eddb4f708cf3498eb29f778b9fccd6"
+  }
+}

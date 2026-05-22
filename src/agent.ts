@@ -148,8 +148,21 @@ async function compressHistory(messages: Message[]): Promise<Message[]> {
   if (messages.length <= 12) return messages;
 
   const keepHead = messages.slice(0, 2);
-  const recent = messages.slice(-10);
-  const needCompress = messages.slice(2, -10);
+
+  // 找安全切割点：不能从 tool 消息或 tool_calls 中途开始
+  // 向前找最近的 user 消息或无 tool_calls 的 assistant 消息
+  let recentStart = messages.length - 10;
+  while (recentStart < messages.length) {
+    const msg = messages[recentStart] as any;
+    if (msg.role === "user") break;
+    if (msg.role === "assistant" && !msg.tool_calls?.length) break;
+    recentStart++;
+  }
+  // 如果找不到安全点，保留全部
+  if (recentStart >= messages.length) return messages;
+
+  const recent = messages.slice(recentStart);
+  const needCompress = messages.slice(2, recentStart);
 
   // 无中间内容无需压缩
   if (needCompress.length === 0) return messages;
@@ -260,7 +273,8 @@ export async function agentLoop(
 2. 删除文件必须调用 delete_file（会等待用户确认）
 3. 敏感 bash 命令（rm/mv/chmod 等）会触发终端确认，未确认前不要假定已执行
 4. 任务未完成时持续调用工具，不要主动结束
-5. 完成后输出执行结果摘要${memorySection(memoryIndex, recalled)}${skillsSection}
+5. 完成后输出执行结果摘要
+6. 读文件用 read_file_fragment，修改文件局部用 edit_file_lines，写整个文件用 write_file，列目录用 list_directory${memorySection(memoryIndex, recalled)}${skillsSection}
 子任务内容：${userPrompt}`
     : `你是规划型主Agent，工作目录：${WORK_DIR}
 规则：

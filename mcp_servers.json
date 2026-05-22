@@ -1,15 +1,5 @@
 {
   "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-filesystem",
-        "/tmp",
-        "/Users/hetao/Downloads",
-        "/Users/hetao/Desktop"
-      ]
-    },
     "bing-cn-mcp-server": {
       "type": "streamable_http",
       "url": "https://mcp.api-inference.modelscope.net/e470e5075c4e42/mcp",
