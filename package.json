@@ -1,9 +1,12 @@
 {
-  "name": "my_agent",
+  "name": "@bubu/agent",
   "version": "1.0.0",
   "description": "",
   "type": "module",
   "main": "src/index.ts",
+  "bin": {
+    "bubu": "./bin/bubu.mjs"
+  },
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc",
@@ -24,10 +27,10 @@
     "tree-sitter-rust": "^0.21.0",
     "tree-sitter-typescript": "^0.21.2",
     "ts-node": "^10.9.2",
+    "tsx": "^4.22.3",
     "typescript": "^6.0.3"
   },
   "devDependencies": {
-    "@types/node": "^25.9.1",
-    "tsx": "^4.22.3"
+    "@types/node": "^25.9.1"
   }
 }

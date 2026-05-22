@@ -1,4 +1,6 @@
-import "dotenv/config";
+import dotenv from "dotenv";
+import { ENV_PATH } from "./paths";
+dotenv.config({ path: ENV_PATH });
 import { agentLoop } from "./agent";
 
 // 子 Agent 入口：由 sub-agent.ts spawn 调用

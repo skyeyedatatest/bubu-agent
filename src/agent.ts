@@ -1,4 +1,6 @@
-import "dotenv/config";
+import dotenv from "dotenv";
+import { ENV_PATH, WORK_DIR as _WORK_DIR } from "./paths";
+dotenv.config({ path: ENV_PATH });
 import OpenAI from "openai";
 import readline from "readline";
 import fs from "fs";
@@ -36,7 +38,7 @@ const client = new OpenAI({
   apiKey: process.env.DEEPSEEK_API_KEY!,
 });
 const MODEL = process.env.MODEL!;
-const WORK_DIR = process.cwd();
+const WORK_DIR = _WORK_DIR;
 const MAX_HISTORY_TOKENS = 600000; // DeepSeek V4-Flash 上下文 1M，最大输出 384K，输入预算约 616K
 
 // ====================== 类型定义 ======================

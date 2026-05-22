@@ -1,9 +1,9 @@
 import fs from "fs/promises";
 import path from "path";
 import crypto from "crypto";
+import { PROJECT_DIR } from "./paths.js";
 
-const WORK_DIR = process.cwd();
-export const INDEX_DIR = path.join(WORK_DIR, ".code-index");
+export const INDEX_DIR = path.join(PROJECT_DIR, ".code-index");
 export const SYMBOLS_FILE = path.join(INDEX_DIR, "symbols.json");
 
 const EXCLUDED_DIRS = new Set([

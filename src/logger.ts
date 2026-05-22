@@ -1,5 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
+import { LOGS_DIR } from "./paths";
 
 let logFile: string | null = null;
 let logLabel = "主Agent";
@@ -16,7 +17,7 @@ export async function initLog(userPrompt: string, label = "主Agent") {
   if (!enabled()) return;
   logLabel = label;
 
-  const dir = path.join(process.cwd(), "logs");
+  const dir = LOGS_DIR;
   await fs.mkdir(dir, { recursive: true });
 
   const ts = new Date()

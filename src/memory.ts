@@ -2,9 +2,9 @@ import fs from "fs/promises";
 import path from "path";
 import OpenAI from "openai";
 import { registerSkill } from "./skills";
+import { MEMORY_DIR } from "./paths";
 
 // ====================== 常量 ======================
-const MEMORY_DIR = path.join(process.cwd(), ".memory");
 const MEMORY_INDEX = path.join(MEMORY_DIR, "MEMORY.md");
 const MAX_INDEX_LINES = 200;
 const MAX_INDEX_BYTES = 25 * 1024; // 25KB

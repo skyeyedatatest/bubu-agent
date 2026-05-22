@@ -2,8 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import { execSync } from "child_process";
 import { logToolCall } from "./logger";
-
-const WORK_DIR = process.cwd();
+import { WORK_DIR, SKILLS_DIR, THIRD_PARTY_DIR } from "./paths";
 
 // ====================== 类型定义 ======================
 export type Skill = {
@@ -87,7 +86,7 @@ export function registerLoadSkillTool() {
  * 用户自定义技能专为当前项目编写，默认全部可用。
  */
 export async function loadExternalSkills(
-  skillsDir: string = path.join(process.cwd(), "skills"),
+  skillsDir: string = SKILLS_DIR,
 ) {
   try {
     await fs.access(skillsDir);
@@ -137,7 +136,7 @@ function isValidSkill(s: any): s is Skill {
  * 扫描 .third-party-skills/ 目录，将 SKILL.md 包存入索引，不立即注册。
  */
 export async function indexThirdPartySkills(
-  baseDir: string = path.join(process.cwd(), ".third-party-skills"),
+  baseDir: string = THIRD_PARTY_DIR,
 ) {
   try {
     await fs.access(baseDir);

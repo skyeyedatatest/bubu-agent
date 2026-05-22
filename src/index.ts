@@ -2,7 +2,7 @@ import { agentLoop, expandFileReferences } from "./agent";
 import { promptWithFileCompletion } from "./input";
 
 async function main() {
-  const prompt = await promptWithFileCompletion("🧑 请输入：");
+  const prompt = await promptWithFileCompletion("请输入：");
 
   if (!prompt) {
     console.log("未输入，退出。");

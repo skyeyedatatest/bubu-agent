@@ -3,6 +3,7 @@ import { fileURLToPath } from "url";
 import { spawn, type ChildProcess } from "child_process";
 import { registerSkill } from "./skills";
 import { enqueueConfirm } from "./confirm-queue";
+import { resolveTsxSpawn } from "./paths";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RUNNER = path.join(__dirname, "sub-agent-runner.ts");
@@ -18,12 +19,17 @@ type SubTask = {
 // ====================== 子 Agent 执行 ======================
 function runSubAgent(task: SubTask): Promise<string> {
   return new Promise((resolve) => {
-    const child: ChildProcess = spawn("tsx", [RUNNER, task.prompt, task.id], {
-      cwd: task.cwd ?? process.cwd(),
-      // stdin ignore：确认走 IPC，stdout/stderr 管道捕获输出，ipc 通道传确认消息
-      stdio: ["ignore", "pipe", "pipe", "ipc"],
-      env: process.env,
-    });
+    const tsx = resolveTsxSpawn();
+    const child: ChildProcess = spawn(
+      tsx.command,
+      [...tsx.args, RUNNER, task.prompt, task.id],
+      {
+        cwd: task.cwd ?? process.cwd(),
+        // stdin ignore：确认走 IPC，stdout/stderr 管道捕获输出，ipc 通道传确认消息
+        stdio: ["ignore", "pipe", "pipe", "ipc"],
+        env: process.env,
+      },
+    );
 
     // 收到子进程的确认请求，排入串行队列后回复
     child.on("message", async (msg: unknown) => {

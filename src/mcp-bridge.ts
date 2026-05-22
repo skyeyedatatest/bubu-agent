@@ -4,6 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp";
 import { registerSkill } from "./skills";
+import { MCP_CONFIG_PATH } from "./paths";
 
 // ====================== 类型定义 ======================
 type StdioConfig = {
@@ -35,12 +36,7 @@ const activeClients: Client[] = [];
  * 工具名称格式：<serverName>__<toolName>
  * 例如：filesystem__read_file
  */
-const _defaultConfigPath = path.join(
-  path.dirname(new URL(import.meta.url).pathname),
-  "mcp_servers.json",
-);
-
-export async function loadMCPBridge(configPath: string = _defaultConfigPath) {
+export async function loadMCPBridge(configPath: string = MCP_CONFIG_PATH) {
   let config: MCPServersConfig;
   try {
     const raw = await fs.readFile(configPath, "utf-8");

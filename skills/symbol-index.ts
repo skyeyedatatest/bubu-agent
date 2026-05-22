@@ -38,7 +38,7 @@ const buildSymbolIndex: Skill = {
       `   更新文件：${result.updatedFiles} 个`,
       `   符号总数：${result.symbolCount} 个`,
       `   耗时：${result.ms}ms`,
-      `   缓存位置：.code-index/symbols.json`,
+      `   缓存位置：${(await import("../src/paths.js")).PROJECT_DIR}/.code-index/symbols.json`,
     ].join("\n");
   },
 };
