@@ -61,6 +61,8 @@ export function promptWithFileCompletion(question: string): Promise<string> {
     }
 
     process.stdout.write(question);
+    // redraw 时不能重复输出前缀换行，否则每次按键都会下移一行
+    const promptLine = question.replace(/^\n+/, "");
 
     let inputBuffer = "";
     let completion: Completion | null = null;
@@ -94,14 +96,14 @@ export function promptWithFileCompletion(question: string): Promise<string> {
       }
       // 回到输入行末尾
       process.stdout.write(
-        `\x1b[${shownLines}A\r\x1b[2K${question}${inputBuffer}`,
+        `\x1b[${shownLines}A\r\x1b[2K${promptLine}${inputBuffer}`,
       );
     }
 
     // 清除建议后重绘输入行
     function redraw() {
       clearSuggestions();
-      process.stdout.write(`\r\x1b[2K${question}${inputBuffer}`);
+      process.stdout.write(`\r\x1b[2K${promptLine}${inputBuffer}`);
       renderSuggestions();
     }
 
