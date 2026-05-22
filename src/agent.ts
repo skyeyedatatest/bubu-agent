@@ -398,9 +398,8 @@ export async function agentLoop(
       // 无工具调用：交互模式下等待用户输入再继续，否则结束
       if (!collectedToolCalls.length) {
         if (interactive && process.stdin.isTTY) {
-          const userReply = await promptWithFileCompletion(
-            "\n👤 你的回复（直接回车结束任务）: ",
-          );
+          console.log("\n👤 你的回复（直接回车结束任务）");
+          const userReply = await promptWithFileCompletion("> ");
           if (!userReply) {
             console.log("\n✅ 任务全部完成！");
             await logDone();

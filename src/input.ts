@@ -35,6 +35,21 @@ function getFileSuggestions(prefix: string): string[] {
   }
 }
 
+/** 终端显示宽度（CJK / emoji 按 2 列估算） */
+function visualWidth(s: string): number {
+  let w = 0;
+  for (const ch of s) {
+    const code = ch.codePointAt(0) ?? 0;
+    w +=
+      code > 0xff ||
+      (code >= 0x1100 && code <= 0xffef) ||
+      (code >= 0x1f300 && code <= 0x1ffff)
+        ? 2
+        : 1;
+  }
+  return w;
+}
+
 // ── 交互式输入（支持 @文件 自动补全） ─────────────────────────
 interface Completion {
   suggestions: string[];
@@ -60,13 +75,17 @@ export function promptWithFileCompletion(question: string): Promise<string> {
       return;
     }
 
-    process.stdout.write(question);
-    // redraw 时不能重复输出前缀换行，否则每次按键都会下移一行
-    const promptLine = question.replace(/^\n+/, "");
+    const leadingNewlines = question.match(/^\n+/)?.[0] ?? "";
+    const promptLine = question.slice(leadingNewlines.length);
+    // 提示只输出一次；redraw 仅更新用户输入，避免长中文提示换行后重复堆叠
+    if (leadingNewlines) process.stdout.write(leadingNewlines);
+    process.stdout.write(promptLine);
 
     let inputBuffer = "";
+    let renderedInputWidth = 0;
     let completion: Completion | null = null;
     let shownLines = 0;
+    const promptCols = visualWidth(promptLine);
 
     // 清除已渲染的建议行
     function clearSuggestions() {
@@ -94,16 +113,24 @@ export function promptWithFileCompletion(question: string): Promise<string> {
         }
         shownLines++;
       }
-      // 回到输入行末尾
-      process.stdout.write(
-        `\x1b[${shownLines}A\r\x1b[2K${promptLine}${inputBuffer}`,
-      );
+      // 回到输入行，仅重绘用户输入部分
+      process.stdout.write(`\x1b[${shownLines}A`);
+      refreshInput();
     }
 
-    // 清除建议后重绘输入行
+    // 光标移到提示符后，擦除并重写用户输入（不重打整行提示）
+    function refreshInput() {
+      process.stdout.write(`\r\x1b[${promptCols + 1}G`);
+      for (let i = 0; i < renderedInputWidth; i++) {
+        process.stdout.write("\b \b");
+      }
+      process.stdout.write(inputBuffer);
+      renderedInputWidth = visualWidth(inputBuffer);
+    }
+
     function redraw() {
       clearSuggestions();
-      process.stdout.write(`\r\x1b[2K${promptLine}${inputBuffer}`);
+      refreshInput();
       renderSuggestions();
     }
 
@@ -207,6 +234,7 @@ export function promptWithFileCompletion(question: string): Promise<string> {
       if (key === "\x1b") {
         completion = null;
         clearSuggestions();
+        refreshInput();
         return;
       }
 
