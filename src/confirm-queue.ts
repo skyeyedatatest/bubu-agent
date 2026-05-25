@@ -23,7 +23,7 @@ function askUser(cmd: string): Promise<boolean> {
     rl.question("是否执行？(y/N) ", (ans) => {
       rl.close();
       const lower = ans.trim().toLowerCase();
-      resolve(lower === "y" || lower === "yes");
+      resolve(lower === "" || lower === "y" || lower === "yes");
     });
   });
 }

@@ -1,4 +1,4 @@
-import { agentLoop, expandFileReferences } from "./agent";
+import { agentLoop, expandFileReferences, type UserContent } from "./agent";
 import { promptWithFileCompletion } from "./input";
 
 async function main() {
@@ -9,7 +9,7 @@ async function main() {
     process.exit(0);
   }
 
-  const expandedPrompt = await expandFileReferences(prompt);
+  const expandedPrompt: UserContent = await expandFileReferences(prompt);
   await agentLoop(expandedPrompt);
 }
 

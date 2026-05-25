@@ -118,12 +118,9 @@ export function promptWithFileCompletion(question: string): Promise<string> {
       refreshInput();
     }
 
-    // 光标移到提示符后，擦除并重写用户输入（不重打整行提示）
+    // 光标移到提示符后，擦除到行末并重写用户输入
     function refreshInput() {
-      process.stdout.write(`\r\x1b[${promptCols + 1}G`);
-      for (let i = 0; i < renderedInputWidth; i++) {
-        process.stdout.write("\b \b");
-      }
+      process.stdout.write(`\r\x1b[${promptCols + 1}G\x1b[K`);
       process.stdout.write(inputBuffer);
       renderedInputWidth = visualWidth(inputBuffer);
     }
@@ -160,10 +157,11 @@ export function promptWithFileCompletion(question: string): Promise<string> {
       if (!completion || completion.suggestions.length === 0) return;
       const selected = completion.suggestions[completion.selectedIndex] ?? "";
       inputBuffer = inputBuffer.slice(0, completion.atStart + 1) + selected;
-      // 若选了目录，继续展示子目录/文件
+      // 若选了目录，继续展示子目录/文件；否则补空格并关闭补全
       if (selected.endsWith("/")) {
         updateCompletion();
       } else {
+        inputBuffer += " ";
         completion = null;
       }
     }
@@ -173,8 +171,13 @@ export function promptWithFileCompletion(question: string): Promise<string> {
     process.stdin.setEncoding("utf8");
 
     const onData = (key: string) => {
-      // Enter：提交
+      // Enter：有补全列表时先选中，否则提交
       if (key === "\r" || key === "\n") {
+        if (completion && completion.suggestions.length > 0) {
+          selectSuggestion();
+          redraw();
+          return;
+        }
         clearSuggestions();
         process.stdout.write("\n");
         process.stdin.setRawMode(false);

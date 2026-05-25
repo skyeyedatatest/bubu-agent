@@ -48,9 +48,24 @@ type ToolCallItem = {
   function: { name: string; arguments: string };
 };
 
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
+export type UserContent = string | ContentPart[];
+
+/** 从 UserContent 提取纯文本（用于日志、记忆召回等需要字符串的场景） */
+function contentToText(content: UserContent): string {
+  if (typeof content === "string") return content;
+  return content
+    .filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => p.text)
+    .join(" ");
+}
+
 type Message = {
   role: "user" | "assistant" | "tool";
-  content: string | null;
+  content: string | ContentPart[] | null;
   tool_call_id?: string;
   tool_calls?: ToolCallItem[];
   reasoning_content?: string | null; // DeepSeek thinking mode
@@ -77,14 +92,31 @@ function toAPIMessage(m: Message): any {
   return { role: "user", content: m.content ?? "" };
 }
 
-// ====================== 0. @文件引用展开 ======================
-export async function expandFileReferences(input: string): Promise<string> {
+// ====================== 0. @文件引用展开（支持多模态图片）======================
+const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"]);
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+
+function getImageMimeType(ext: string): string {
+  const map: Record<string, string> = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+  };
+  return map[ext] ?? "image/jpeg";
+}
+
+export async function expandFileReferences(input: string): Promise<UserContent> {
   const pattern = /@([^\s@,;:]+)/g;
   const matches = [...input.matchAll(pattern)];
   if (!matches.length) return input;
 
-  const parts: string[] = [];
+  const textParts: string[] = [];
+  const imageParts: ContentPart[] = [];
   let lastIndex = 0;
+  let hasImages = false;
 
   for (const match of matches) {
     const filePath = match[1] ?? "";
@@ -92,22 +124,50 @@ export async function expandFileReferences(input: string): Promise<string> {
     const fullPath = path.isAbsolute(filePath)
       ? filePath
       : path.join(WORK_DIR, filePath);
+    const ext = path.extname(filePath).toLowerCase();
 
-    parts.push(input.slice(lastIndex, startIdx));
+    textParts.push(input.slice(lastIndex, startIdx));
 
-    try {
-      const content = fs.readFileSync(fullPath, "utf-8");
-      console.log(`📎 已附加文件：${filePath}`);
-      parts.push(`@${filePath}\n\`\`\`\n${content}\n\`\`\``);
-    } catch {
-      parts.push(match[0]); // 文件不存在则保留原文
+    if (IMAGE_EXTS.has(ext)) {
+      try {
+        const stat = fs.statSync(fullPath);
+        if (stat.size > MAX_IMAGE_SIZE) {
+          console.warn(`⚠️  图片过大（${(stat.size / 1024 / 1024).toFixed(1)}MB > 10MB），已跳过：${filePath}`);
+          textParts.push(match[0]);
+        } else {
+          const data = fs.readFileSync(fullPath);
+          const base64 = data.toString("base64");
+          const mimeType = getImageMimeType(ext);
+          imageParts.push({ type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } });
+          hasImages = true;
+          console.log(`🖼️  已附加图片：${filePath}（${(stat.size / 1024).toFixed(1)}KB）`);
+        }
+      } catch {
+        textParts.push(match[0]);
+      }
+    } else {
+      try {
+        const content = fs.readFileSync(fullPath, "utf-8");
+        console.log(`📎 已附加文件：${filePath}`);
+        textParts.push(`@${filePath}\n\`\`\`\n${content}\n\`\`\``);
+      } catch {
+        textParts.push(match[0]); // 文件不存在则保留原文
+      }
     }
 
     lastIndex = startIdx + match[0].length;
   }
 
-  parts.push(input.slice(lastIndex));
-  return parts.join("");
+  textParts.push(input.slice(lastIndex));
+
+  if (!hasImages) return textParts.join("");
+
+  // 多模态：文字部分 + 图片部分
+  const fullText = textParts.join("");
+  const parts: ContentPart[] = [];
+  if (fullText.trim()) parts.push({ type: "text", text: fullText });
+  parts.push(...imageParts);
+  return parts;
 }
 
 // ====================== 1. 终端流式打印工具 ======================
@@ -139,7 +199,7 @@ async function confirmOperation(cmd: string): Promise<boolean> {
   console.log(`\n⚠️  敏感操作确认：${cmd}`);
   const ans = await promptWithFileCompletion("是否执行？(y/N) ");
   const lower = ans.toLowerCase();
-  return lower === "y" || lower === "yes";
+  return lower === "" || lower === "y" || lower === "yes";
 }
 
 // ====================== 3. 分层上下文自动压缩 ======================
@@ -220,7 +280,7 @@ export type AgentLoopOptions = {
 
 // ====================== 核心Agent主循环 ======================
 export async function agentLoop(
-  userPrompt: string,
+  userPrompt: UserContent,
   options: AgentLoopOptions = {},
 ) {
   const { isSubTask = false, interactive = !isSubTask, logLabel, confirmFn } = options;
@@ -242,12 +302,13 @@ export async function agentLoop(
   // 两种 Agent 都可以读写记忆
   registerMemorySkills();
 
-  await initLog(userPrompt, logLabel ?? (isSubTask ? "子Agent" : "主Agent"));
+  const userPromptText = contentToText(userPrompt);
+  await initLog(userPromptText, logLabel ?? (isSubTask ? "子Agent" : "主Agent"));
 
   // 并行预取记忆（与后续初始化并行）
   const [memoryIndex, recallPromise] = [
     await loadMemoryIndex(),
-    recallMemories(userPrompt),
+    recallMemories(userPromptText),
   ];
 
   const memorySection = (index: string, recalled: string) => {
@@ -266,7 +327,7 @@ export async function agentLoop(
       ? `\n\n## 可按需加载的技能\n${unloadedSkills.map((s) => `- **${s.name}**: ${s.description}`).join("\n")}\n需要时调用 load_skill 加载后即可使用。`
       : "";
 
-  const systemPrompt = isSubTask
+  const systemInstructions = isSubTask
     ? `你是执行型子Agent，工作目录：${WORK_DIR}
 规则：
 1. 严格使用提供的工具完成任务，不要规划或拆分，直接执行
@@ -275,7 +336,7 @@ export async function agentLoop(
 4. 任务未完成时持续调用工具，不要主动结束
 5. 完成后输出执行结果摘要
 6. 读文件用 read_file_fragment，修改文件局部用 edit_file_lines，写整个文件用 write_file，列目录用 list_directory${memorySection(memoryIndex, recalled)}${skillsSection}
-子任务内容：${userPrompt}`
+子任务内容：`
     : `你是规划型主Agent，工作目录：${WORK_DIR}
 规则：
 1. 分析用户需求，将任务拆解为若干独立子任务
@@ -283,11 +344,17 @@ export async function agentLoop(
 3. 汇总所有子任务结果，向用户输出结构化总结
 4. 不要自己执行具体操作，所有执行都交给子Agent完成
 5. 发现值得记住的用户偏好或行为反馈时，调用 save_memory 保存${memorySection(memoryIndex, recalled)}
-用户需求：${userPrompt}`;
+用户需求：`;
+
+  // 构建初始消息内容（纯文本或多模态）
+  const initialContent: string | ContentPart[] =
+    typeof userPrompt === "string"
+      ? systemInstructions + userPrompt
+      : [{ type: "text", text: systemInstructions }, ...userPrompt];
 
   try {
     const messages: Message[] = [
-      { role: "user", content: systemPrompt },
+      { role: "user", content: initialContent },
     ];
 
     while (true) {
@@ -406,7 +473,7 @@ export async function agentLoop(
             return;
           }
           const expandedReply = await expandFileReferences(userReply);
-          await logUser(expandedReply);
+          await logUser(contentToText(expandedReply));
           messages.push({ role: "user", content: expandedReply });
           continue;
         }
