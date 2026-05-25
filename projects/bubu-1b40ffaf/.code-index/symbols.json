@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "builtAt": "2026-05-25T11:55:50.328Z",
+  "builtAt": "2026-05-25T12:19:35.068Z",
   "symbols": [
     {
       "name": "ScreenRecorder",
@@ -156,71 +156,45 @@
       "signature": "def main():"
     },
     {
-      "name": "add_bg_rect",
+      "name": "load_config",
       "type": "function",
-      "filePath": "create_ppt.py",
-      "startLine": 37,
-      "endLine": 43,
+      "filePath": "redbook-article/美股复盘-0525/auto_upload.py",
+      "startLine": 13,
+      "endLine": 16,
       "language": "python",
-      "signature": "def add_bg_rect(slide, color=DARK_BLUE):"
+      "signature": "def load_config():"
     },
     {
-      "name": "add_rect",
+      "name": "resolve_path",
       "type": "function",
-      "filePath": "create_ppt.py",
-      "startLine": 44,
+      "filePath": "redbook-article/美股复盘-0525/auto_upload.py",
+      "startLine": 17,
+      "endLine": 21,
+      "language": "python",
+      "signature": "def resolve_path(relative_path):"
+    },
+    {
+      "name": "main",
+      "type": "function",
+      "filePath": "redbook-article/美股复盘-0525/auto_upload.py",
+      "startLine": 22,
+      "endLine": 180,
+      "language": "python",
+      "signature": "def main():"
+    },
+    {
+      "name": "draw_cloud",
+      "type": "function",
+      "filePath": "gen_weather_card.py",
+      "startLine": 46,
       "endLine": 51,
       "language": "python",
-      "signature": "def add_rect(slide, left, top, width, height, color):"
-    },
-    {
-      "name": "add_textbox",
-      "type": "function",
-      "filePath": "create_ppt.py",
-      "startLine": 52,
-      "endLine": 57,
-      "language": "python",
-      "signature": "def add_textbox(slide, left, top, width, height):"
-    },
-    {
-      "name": "set_para",
-      "type": "function",
-      "filePath": "create_ppt.py",
-      "startLine": 58,
-      "endLine": 67,
-      "language": "python",
-      "signature": "def set_para(p, text, font_size=16, color=BLACK, bold=False, alignment=PP_ALIGN.LEFT, space_after=Pt(6)):"
-    },
-    {
-      "name": "add_text",
-      "type": "function",
-      "filePath": "create_ppt.py",
-      "startLine": 68,
-      "endLine": 75,
-      "language": "python",
-      "signature": "def add_text(slide, left, top, width, height, text, font_size=18, color=BLACK,"
-    },
-    {
-      "name": "add_para_to_tf",
-      "type": "function",
-      "filePath": "create_ppt.py",
-      "startLine": 76,
-      "endLine": 81,
-      "language": "python",
-      "signature": "def add_para_to_tf(tf, text, font_size=16, color=BLACK, bold=False, alignment=PP_ALIGN.LEFT, space_after=Pt(6)):"
-    },
-    {
-      "name": "add_table",
-      "type": "function",
-      "filePath": "create_ppt.py",
-      "startLine": 82,
-      "endLine": 129,
-      "language": "python",
-      "signature": "def add_table(slide, left, top, width, height, rows, cols, data, col_widths=None):"
+      "signature": "def draw_cloud(draw, x, y, size=60, color=(255, 255, 255, 200)):"
     }
   ],
   "fileHashes": {
     "screen_recorder.py": "6fe6d59a7aea0830368100f4d302b394",
-    "create_ppt.py": "b00bc03c2c52fde975bf809a2656babf"
+    "redbook-article/美股复盘-0525/auto_upload.py": "b445845b99eec7e6f88b36143000fbb0",
+    "gen_weather_card.py": "2bfe19b91501a69a30449846d0210cf6"
   }
 }
