@@ -108,7 +108,9 @@ function getImageMimeType(ext: string): string {
   return map[ext] ?? "image/jpeg";
 }
 
-export async function expandFileReferences(input: string): Promise<UserContent> {
+export async function expandFileReferences(
+  input: string,
+): Promise<UserContent> {
   const pattern = /@([^\s@,;:]+)/g;
   const matches = [...input.matchAll(pattern)];
   if (!matches.length) return input;
@@ -132,15 +134,22 @@ export async function expandFileReferences(input: string): Promise<UserContent> 
       try {
         const stat = fs.statSync(fullPath);
         if (stat.size > MAX_IMAGE_SIZE) {
-          console.warn(`⚠️  图片过大（${(stat.size / 1024 / 1024).toFixed(1)}MB > 10MB），已跳过：${filePath}`);
+          console.warn(
+            `⚠️  图片过大（${(stat.size / 1024 / 1024).toFixed(1)}MB > 10MB），已跳过：${filePath}`,
+          );
           textParts.push(match[0]);
         } else {
           const data = fs.readFileSync(fullPath);
           const base64 = data.toString("base64");
           const mimeType = getImageMimeType(ext);
-          imageParts.push({ type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } });
+          imageParts.push({
+            type: "image_url",
+            image_url: { url: `data:${mimeType};base64,${base64}` },
+          });
           hasImages = true;
-          console.log(`🖼️  已附加图片：${filePath}（${(stat.size / 1024).toFixed(1)}KB）`);
+          console.log(
+            `🖼️  已附加图片：${filePath}（${(stat.size / 1024).toFixed(1)}KB）`,
+          );
         }
       } catch {
         textParts.push(match[0]);
@@ -247,15 +256,24 @@ async function compressHistory(messages: Message[]): Promise<Message[]> {
   ];
 }
 
-// 简易token估算
+// token估算：中文字符×0.6，其他字符×0.3（参考 DeepSeek tokenizer 换算比例）
 function estimateTokenCount(text: string): number {
-  return Math.floor(text.length / 4);
+  let count = 0;
+  for (const char of text) {
+    // CJK 统一汉字及常用扩展区
+    count += /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/.test(char) ? 0.6 : 0.3;
+  }
+  return Math.floor(count);
 }
 
-// 自动检测阈值并触发压缩
-async function autoCompress(messages: Message[]): Promise<Message[]> {
-  const totalText = messages.map((m) => m.content).join("");
-  if (estimateTokenCount(totalText) > MAX_HISTORY_TOKENS) {
+// 自动检测阈值并触发压缩；knownTokens 为上次 API 返回的真实 prompt_tokens
+async function autoCompress(
+  messages: Message[],
+  knownTokens?: number,
+): Promise<Message[]> {
+  const tokens =
+    knownTokens ?? estimateTokenCount(messages.map((m) => m.content).join(""));
+  if (tokens > MAX_HISTORY_TOKENS) {
     console.log("\n🔧 上下文超阈值，自动压缩历史会话...");
     return await compressHistory(messages);
   }
@@ -283,14 +301,19 @@ export async function agentLoop(
   userPrompt: UserContent,
   options: AgentLoopOptions = {},
 ) {
-  const { isSubTask = false, interactive = !isSubTask, logLabel, confirmFn } = options;
+  const {
+    isSubTask = false,
+    interactive = !isSubTask,
+    logLabel,
+    confirmFn,
+  } = options;
   const confirm = confirmFn ?? confirmOperation;
 
   if (isSubTask) {
     // 子 Agent：内置技能立即加载，其余按需加载
     initBuiltinSkills(confirm);
-    await loadExternalSkills();      // skills/ 立即加载
-    await indexThirdPartySkills();   // .third-party-skills/ 按需加载
+    await loadExternalSkills(); // skills/ 立即加载
+    await indexThirdPartySkills(); // .third-party-skills/ 按需加载
     registerLoadSkillTool();
     initBuiltinMCP();
     await loadExternalMCP();
@@ -303,7 +326,10 @@ export async function agentLoop(
   registerMemorySkills();
 
   const userPromptText = contentToText(userPrompt);
-  await initLog(userPromptText, logLabel ?? (isSubTask ? "子Agent" : "主Agent"));
+  await initLog(
+    userPromptText,
+    logLabel ?? (isSubTask ? "子Agent" : "主Agent"),
+  );
 
   // 并行预取记忆（与后续初始化并行）
   const [memoryIndex, recallPromise] = [
@@ -353,13 +379,13 @@ export async function agentLoop(
       : [{ type: "text", text: systemInstructions }, ...userPrompt];
 
   try {
-    const messages: Message[] = [
-      { role: "user", content: initialContent },
-    ];
+    const messages: Message[] = [{ role: "user", content: initialContent }];
+
+    let lastPromptTokens: number | undefined;
 
     while (true) {
-      // 自动上下文压缩
-      const compressedMsgs = await autoCompress(messages);
+      // 自动上下文压缩（优先使用上次 API 返回的真实 prompt_tokens）
+      const compressedMsgs = await autoCompress(messages, lastPromptTokens);
 
       const toolDefs = skills.map((s) => ({
         type: "function" as const,
@@ -380,6 +406,7 @@ export async function agentLoop(
             tools: toolDefs,
             max_tokens: 384000,
             stream: true,
+            stream_options: { include_usage: true },
           });
           break;
         } catch (e: any) {
@@ -409,6 +436,9 @@ export async function agentLoop(
       console.log("\n🤖 Agent 思考中...");
 
       for await (const chunk of stream) {
+        if ((chunk as any).usage?.prompt_tokens) {
+          lastPromptTokens = (chunk as any).usage.prompt_tokens;
+        }
         const delta = chunk.choices[0]?.delta as any;
         const fr = chunk.choices[0]?.finish_reason;
         if (fr) finishReason = fr;
