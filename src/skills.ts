@@ -45,7 +45,10 @@ type SkillIndexEntry = {
 const _skillIndex = new Map<string, SkillIndexEntry>();
 
 /** 返回已索引但尚未加载的技能列表 */
-export function getUnloadedSkills(): Array<{ name: string; description: string }> {
+export function getUnloadedSkills(): Array<{
+  name: string;
+  description: string;
+}> {
   return Array.from(_skillIndex.entries()).map(([name, e]) => ({
     name,
     description: e.description,
@@ -56,8 +59,7 @@ export function getUnloadedSkills(): Array<{ name: string; description: string }
 export function registerLoadSkillTool() {
   registerSkill({
     name: "load_skill",
-    description:
-      "按需加载并激活一个技能。加载后该技能立即可用，可直接调用。",
+    description: "按需加载并激活一个技能。加载后该技能立即可用，可直接调用。",
     input_schema: {
       type: "object",
       properties: {
@@ -85,9 +87,7 @@ export function registerLoadSkillTool() {
  * 扫描 skills/ 目录，立即注册所有技能。
  * 用户自定义技能专为当前项目编写，默认全部可用。
  */
-export async function loadExternalSkills(
-  skillsDir: string = SKILLS_DIR,
-) {
+export async function loadExternalSkills(skillsDir: string = SKILLS_DIR) {
   try {
     await fs.access(skillsDir);
   } catch {
@@ -135,9 +135,7 @@ function isValidSkill(s: any): s is Skill {
 /**
  * 扫描 .third-party-skills/ 目录，将 SKILL.md 包存入索引，不立即注册。
  */
-export async function indexThirdPartySkills(
-  baseDir: string = THIRD_PARTY_DIR,
-) {
+export async function indexThirdPartySkills(baseDir: string = THIRD_PARTY_DIR) {
   try {
     await fs.access(baseDir);
   } catch {
@@ -155,7 +153,10 @@ export async function indexThirdPartySkills(
       if (!name || !description) continue;
 
       const skillName = sanitizeSkillName(name);
-      if (_skillIndex.has(skillName) || skills.find((s) => s.name === skillName))
+      if (
+        _skillIndex.has(skillName) ||
+        skills.find((s) => s.name === skillName)
+      )
         continue;
 
       _skillIndex.set(skillName, {
@@ -167,7 +168,10 @@ export async function indexThirdPartySkills(
             input_schema: {
               type: "object",
               properties: {
-                query: { type: "string", description: "具体要执行的操作或查询" },
+                query: {
+                  type: "string",
+                  description: "具体要执行的操作或查询",
+                },
               },
               required: [],
             },
@@ -207,7 +211,10 @@ function parseSkillMd(raw: string): {
 
 /** skill name 只允许字母、数字、下划线、连字符 */
 function sanitizeSkillName(name: string): string {
-  return name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "_");
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "_");
 }
 
 // ====================== 内置核心技能 ======================

@@ -85,9 +85,10 @@ export function promptWithFileCompletion(question: string): Promise<string> {
     let renderedInputWidth = 0;
     let completion: Completion | null = null;
     let shownLines = 0;
+    let renderedInputLines = 1;
     const promptCols = visualWidth(promptLine);
 
-    // 清除已渲染的建议行
+    // 清除已渲染的建议行（光标须在最后一行输入行末尾）
     function clearSuggestions() {
       if (shownLines === 0) return;
       for (let i = 0; i < shownLines; i++) {
@@ -97,7 +98,38 @@ export function promptWithFileCompletion(question: string): Promise<string> {
       shownLines = 0;
     }
 
-    // 渲染建议行（在输入行下方）
+    // 重绘输入区（支持多行）
+    function refreshInput() {
+      // 移到第一行输入行
+      if (renderedInputLines > 1) {
+        process.stdout.write(`\x1b[${renderedInputLines - 1}A`);
+      }
+
+      const lines = inputBuffer.split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        process.stdout.write(i === 0 ? `\r\x1b[${promptCols + 1}G\x1b[K` : `\r\x1b[K`);
+        process.stdout.write(lines[i] ?? "");
+        if (i < lines.length - 1) process.stdout.write("\n");
+      }
+
+      // 若行数减少，清除多余的旧行
+      if (renderedInputLines > lines.length) {
+        for (let i = 0; i < renderedInputLines - lines.length; i++) {
+          process.stdout.write("\n\x1b[K");
+        }
+        process.stdout.write(`\x1b[${renderedInputLines - lines.length}A`);
+        const lastLine = lines[lines.length - 1] ?? "";
+        const col = lines.length > 1
+          ? visualWidth(lastLine) + 1
+          : promptCols + visualWidth(lastLine) + 1;
+        process.stdout.write(`\r\x1b[${col}G`);
+      }
+
+      renderedInputLines = lines.length;
+      renderedInputWidth = visualWidth(lines[lines.length - 1] ?? "");
+    }
+
+    // 渲染建议行（在输入区下方）
     function renderSuggestions() {
       clearSuggestions();
       if (!completion || completion.suggestions.length === 0) return;
@@ -105,24 +137,20 @@ export function promptWithFileCompletion(question: string): Promise<string> {
       for (let i = 0; i < completion.suggestions.length; i++) {
         process.stdout.write("\n\x1b[2K");
         if (i === completion.selectedIndex) {
-          process.stdout.write(
-            `\x1b[7m  ${completion.suggestions[i]}  \x1b[0m`,
-          );
+          process.stdout.write(`\x1b[7m  ${completion.suggestions[i]}  \x1b[0m`);
         } else {
           process.stdout.write(`  \x1b[2m${completion.suggestions[i]}\x1b[0m`);
         }
         shownLines++;
       }
-      // 回到输入行，仅重绘用户输入部分
+      // 回到最后一行输入行末尾
       process.stdout.write(`\x1b[${shownLines}A`);
-      refreshInput();
-    }
-
-    // 光标移到提示符后，擦除到行末并重写用户输入
-    function refreshInput() {
-      process.stdout.write(`\r\x1b[${promptCols + 1}G\x1b[K`);
-      process.stdout.write(inputBuffer);
-      renderedInputWidth = visualWidth(inputBuffer);
+      const lines = inputBuffer.split("\n");
+      const lastLine = lines[lines.length - 1] ?? "";
+      const col = lines.length > 1
+        ? visualWidth(lastLine) + 1
+        : promptCols + visualWidth(lastLine) + 1;
+      process.stdout.write(`\r\x1b[${col}G`);
     }
 
     function redraw() {
@@ -139,8 +167,8 @@ export function promptWithFileCompletion(question: string): Promise<string> {
         return;
       }
       const prefix = inputBuffer.slice(atIdx + 1);
-      // @ 后有空格说明路径已结束
-      if (prefix.includes(" ")) {
+      // @ 后有空格或换行说明路径已结束
+      if (prefix.includes(" ") || prefix.includes("\n")) {
         completion = null;
         return;
       }
@@ -169,6 +197,15 @@ export function promptWithFileCompletion(question: string): Promise<string> {
     process.stdin.setRawMode(true);
     process.stdin.resume();
     process.stdin.setEncoding("utf8");
+    process.stdout.write("\x1b[?2004h"); // 启用 bracketed paste 模式
+
+    let pasting = false;
+
+    function cleanup() {
+      process.stdout.write("\x1b[?2004l"); // 禁用 bracketed paste 模式
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+    }
 
     const onData = (key: string) => {
       // Enter：有补全列表时先选中，否则提交
@@ -180,15 +217,23 @@ export function promptWithFileCompletion(question: string): Promise<string> {
         }
         clearSuggestions();
         process.stdout.write("\n");
-        process.stdin.setRawMode(false);
-        process.stdin.pause();
         process.stdin.removeListener("data", onData);
+        cleanup();
         resolve(inputBuffer.trim());
+        return;
+      }
+
+      // Alt+Enter：插入换行（多行输入）
+      if (key === "\x1b\r" || key === "\x1b\n") {
+        inputBuffer += "\n";
+        updateCompletion();
+        redraw();
         return;
       }
 
       // Ctrl+C
       if (key === "\x03") {
+        cleanup();
         process.stdout.write("\n");
         process.exit(0);
       }
@@ -230,6 +275,38 @@ export function promptWithFileCompletion(question: string): Promise<string> {
           selectSuggestion();
           redraw();
         }
+        return;
+      }
+
+      // Bracketed paste 开始
+      if (key === "\x1b[200~" || key.startsWith("\x1b[200~")) {
+        pasting = true;
+        let content = key.slice("\x1b[200~".length);
+        const endIdx = content.indexOf("\x1b[201~");
+        if (endIdx !== -1) {
+          content = content.slice(0, endIdx);
+          pasting = false;
+        }
+        inputBuffer += content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        updateCompletion();
+        redraw();
+        return;
+      }
+
+      // Bracketed paste 结束
+      if (key === "\x1b[201~") {
+        pasting = false;
+        return;
+      }
+
+      // 粘贴中途收到的数据块
+      if (pasting) {
+        const endIdx = key.indexOf("\x1b[201~");
+        const content = endIdx !== -1 ? key.slice(0, endIdx) : key;
+        if (endIdx !== -1) pasting = false;
+        inputBuffer += content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+        updateCompletion();
+        redraw();
         return;
       }
 

@@ -48,24 +48,11 @@ type ToolCallItem = {
   function: { name: string; arguments: string };
 };
 
-export type ContentPart =
-  | { type: "text"; text: string }
-  | { type: "image_url"; image_url: { url: string } };
-
-export type UserContent = string | ContentPart[];
-
-/** 从 UserContent 提取纯文本（用于日志、记忆召回等需要字符串的场景） */
-function contentToText(content: UserContent): string {
-  if (typeof content === "string") return content;
-  return content
-    .filter((p): p is { type: "text"; text: string } => p.type === "text")
-    .map((p) => p.text)
-    .join(" ");
-}
+export type UserContent = string;
 
 type Message = {
   role: "user" | "assistant" | "tool";
-  content: string | ContentPart[] | null;
+  content: string | null;
   tool_call_id?: string;
   tool_calls?: ToolCallItem[];
   reasoning_content?: string | null; // DeepSeek thinking mode
@@ -92,91 +79,36 @@ function toAPIMessage(m: Message): any {
   return { role: "user", content: m.content ?? "" };
 }
 
-// ====================== 0. @文件引用展开（支持多模态图片）======================
-const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"]);
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
-
-function getImageMimeType(ext: string): string {
-  const map: Record<string, string> = {
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".png": "image/png",
-    ".gif": "image/gif",
-    ".webp": "image/webp",
-    ".bmp": "image/bmp",
-  };
-  return map[ext] ?? "image/jpeg";
-}
-
-export async function expandFileReferences(
-  input: string,
-): Promise<UserContent> {
+// ====================== 0. @文件引用展开 ======================
+export async function expandFileReferences(input: string): Promise<string> {
   const pattern = /@([^\s@,;:]+)/g;
   const matches = [...input.matchAll(pattern)];
   if (!matches.length) return input;
 
-  const textParts: string[] = [];
-  const imageParts: ContentPart[] = [];
+  const parts: string[] = [];
   let lastIndex = 0;
-  let hasImages = false;
 
   for (const match of matches) {
     const filePath = match[1] ?? "";
     const startIdx = match.index ?? 0;
+    parts.push(input.slice(lastIndex, startIdx));
+
     const fullPath = path.isAbsolute(filePath)
       ? filePath
       : path.join(WORK_DIR, filePath);
-    const ext = path.extname(filePath).toLowerCase();
-
-    textParts.push(input.slice(lastIndex, startIdx));
-
-    if (IMAGE_EXTS.has(ext)) {
-      try {
-        const stat = fs.statSync(fullPath);
-        if (stat.size > MAX_IMAGE_SIZE) {
-          console.warn(
-            `⚠️  图片过大（${(stat.size / 1024 / 1024).toFixed(1)}MB > 10MB），已跳过：${filePath}`,
-          );
-          textParts.push(match[0]);
-        } else {
-          const data = fs.readFileSync(fullPath);
-          const base64 = data.toString("base64");
-          const mimeType = getImageMimeType(ext);
-          imageParts.push({
-            type: "image_url",
-            image_url: { url: `data:${mimeType};base64,${base64}` },
-          });
-          hasImages = true;
-          console.log(
-            `🖼️  已附加图片：${filePath}（${(stat.size / 1024).toFixed(1)}KB）`,
-          );
-        }
-      } catch {
-        textParts.push(match[0]);
-      }
-    } else {
-      try {
-        const content = fs.readFileSync(fullPath, "utf-8");
-        console.log(`📎 已附加文件：${filePath}`);
-        textParts.push(`@${filePath}\n\`\`\`\n${content}\n\`\`\``);
-      } catch {
-        textParts.push(match[0]); // 文件不存在则保留原文
-      }
+    try {
+      const content = fs.readFileSync(fullPath, "utf-8");
+      console.log(`📎 已附加文件：${filePath}`);
+      parts.push(`@${filePath}\n\`\`\`\n${content}\n\`\`\``);
+    } catch {
+      parts.push(match[0]); // 文件不存在则保留原文
     }
 
     lastIndex = startIdx + match[0].length;
   }
 
-  textParts.push(input.slice(lastIndex));
-
-  if (!hasImages) return textParts.join("");
-
-  // 多模态：文字部分 + 图片部分
-  const fullText = textParts.join("");
-  const parts: ContentPart[] = [];
-  if (fullText.trim()) parts.push({ type: "text", text: fullText });
-  parts.push(...imageParts);
-  return parts;
+  parts.push(input.slice(lastIndex));
+  return parts.join("");
 }
 
 // ====================== 1. 终端流式打印工具 ======================
@@ -325,7 +257,7 @@ export async function agentLoop(
   // 两种 Agent 都可以读写记忆
   registerMemorySkills();
 
-  const userPromptText = contentToText(userPrompt);
+  const userPromptText = userPrompt;
   await initLog(
     userPromptText,
     logLabel ?? (isSubTask ? "子Agent" : "主Agent"),
@@ -367,19 +299,17 @@ export async function agentLoop(
 规则：
 1. 分析用户需求，将任务拆解为若干独立子任务
 2. 通过 run_subtasks 并行派发给子Agent执行，每个子任务描述必须完整、自包含
-3. 汇总所有子任务结果，向用户输出结构化总结
-4. 不要自己执行具体操作，所有执行都交给子Agent完成
-5. 发现值得记住的用户偏好或行为反馈时，调用 save_memory 保存${memorySection(memoryIndex, recalled)}
+3. 子任务只写「要什么」：目标、交付物、内容范围、风格/约束、验收标准；上游子任务产出可引用
+4. 子任务不要写「怎么做」：不要指定编程语言、库、命令、脚本路径或实现步骤；实现与 skill 选择由子Agent根据工具与「可按需加载的技能」自行决定（用户明确要求的技术约束除外）
+5. 汇总所有子任务结果，向用户输出结构化总结
+6. 不要自己执行具体操作，所有执行都交给子Agent完成
+7. 发现值得记住的用户偏好或行为反馈时，调用 save_memory 保存${memorySection(memoryIndex, recalled)}
 用户需求：`;
 
-  // 构建初始消息内容（纯文本或多模态）
-  const initialContent: string | ContentPart[] =
-    typeof userPrompt === "string"
-      ? systemInstructions + userPrompt
-      : [{ type: "text", text: systemInstructions }, ...userPrompt];
-
   try {
-    const messages: Message[] = [{ role: "user", content: initialContent }];
+    const messages: Message[] = [
+      { role: "user", content: systemInstructions + userPrompt },
+    ];
 
     let lastPromptTokens: number | undefined;
 
@@ -503,7 +433,7 @@ export async function agentLoop(
             return;
           }
           const expandedReply = await expandFileReferences(userReply);
-          await logUser(contentToText(expandedReply));
+          await logUser(expandedReply);
           messages.push({ role: "user", content: expandedReply });
           continue;
         }
