@@ -8,9 +8,63 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
 const BASE_URL = "https://ilinkai.weixin.qq.com";
+const SESSION_FILE = path.join(__dirname, "..", ".bot_session.json");
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
+
+// ========== Session 持久化 ==========
+interface SessionData {
+  token: string;
+  baseUrl: string;
+  loginTime: number;
+}
+
+function saveSession(token: string, baseUrl: string, time: number): void {
+  try {
+    fs.writeFileSync(
+      SESSION_FILE,
+      JSON.stringify({ token, baseUrl, loginTime: time }),
+      "utf-8",
+    );
+  } catch {}
+}
+
+function loadSession(): SessionData | null {
+  try {
+    if (!fs.existsSync(SESSION_FILE)) return null;
+    const data = JSON.parse(
+      fs.readFileSync(SESSION_FILE, "utf-8"),
+    ) as SessionData;
+    if (data.token && data.baseUrl && data.loginTime) return data;
+  } catch {}
+  return null;
+}
+
+async function validateSession(
+  token: string,
+  baseUrl: string,
+): Promise<boolean> {
+  try {
+    const res: any = await fetch(`${baseUrl}/ilink/bot/getupdates`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        AuthorizationType: "ilink_bot_token",
+        "X-WECHAT-UIN": Buffer.from("0").toString("base64"),
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        get_updates_buf: "",
+        base_info: { channel_version: "1.0.2" },
+      }),
+    }).then((r) => r.json());
+    return res && typeof res === "object" && res.errcode !== 401 && !res.error;
+  } catch {
+    return false;
+  }
+}
+// =====================================
 
 // ========== 自动重连配置 ==========
 const RECONNECT_CONFIG = {
@@ -26,14 +80,18 @@ const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 const DEEPSEEK_BASE_URL = process.env.BASE_URL ?? "https://api.deepseek.com";
 const MODEL = process.env.MODEL ?? "deepseek-chat";
 const SYSTEM_PROMPT =
-  process.env.PROMPT ?? "你是一个有帮助的AI助手，请用中文简洁地回复。字数尽量少一些";
+  process.env.PROMPT ??
+  "你是一个有帮助的AI助手，请用中文简洁地回复。字数尽量少一些";
 
 if (!DEEPSEEK_API_KEY) {
   console.error("错误：未找到 DEEPSEEK_API_KEY，请在 .env 文件中设置");
   process.exit(1);
 }
 
-const openai = new OpenAI({ baseURL: DEEPSEEK_BASE_URL, apiKey: DEEPSEEK_API_KEY });
+const openai = new OpenAI({
+  baseURL: DEEPSEEK_BASE_URL,
+  apiKey: DEEPSEEK_API_KEY,
+});
 
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 const userHistories = new Map<string, ChatMessage[]>();
@@ -184,12 +242,17 @@ async function doReconnect(): Promise<void> {
 
   botToken = newToken;
   botBaseUrl = newBaseUrl!;
+  loginTime = Date.now();
+  saveSession(botToken, botBaseUrl, loginTime);
   Object.keys(typingTicketCache).forEach((k) => delete typingTicketCache[k]);
   console.log("[重连] 新连接已建立，token 已切换");
-  await sendMsgSafe(fromId, contextToken, "[完成] 新连接已建立，已自动切换，继续使用");
+  await sendMsgSafe(
+    fromId,
+    contextToken,
+    "[完成] 新连接已建立，已自动切换，继续使用",
+  );
 
   reconnectInProgress = false;
-  loginTime = Date.now();
 }
 
 async function reconnectTimerLoop(): Promise<void> {
@@ -197,12 +260,15 @@ async function reconnectTimerLoop(): Promise<void> {
     const elapsed = (Date.now() - loginTime) / 1000;
     const firstWait = Math.max(
       0,
-      RECONNECT_CONFIG.session_duration - RECONNECT_CONFIG.warning_before - elapsed,
+      RECONNECT_CONFIG.session_duration -
+        RECONNECT_CONFIG.warning_before -
+        elapsed,
     );
     await sleep(firstWait * 1000);
 
     let remaining =
-      (loginTime + RECONNECT_CONFIG.session_duration * 1000 - Date.now()) / 1000;
+      (loginTime + RECONNECT_CONFIG.session_duration * 1000 - Date.now()) /
+      1000;
     if (remaining <= RECONNECT_CONFIG.force_before) {
       const msg = "[自动] 连接即将到期，开始强制重新连接...";
       console.log(msg);
@@ -219,18 +285,26 @@ async function reconnectTimerLoop(): Promise<void> {
 
     while (true) {
       remaining =
-        (loginTime + RECONNECT_CONFIG.session_duration * 1000 - Date.now()) / 1000;
+        (loginTime + RECONNECT_CONFIG.session_duration * 1000 - Date.now()) /
+        1000;
       if (remaining <= RECONNECT_CONFIG.force_before) {
         const forceMsg = "[自动] 连接即将到期，开始强制重新连接...";
         console.log(forceMsg);
-        await sendMsgSafe(lastContact.fromId, lastContact.contextToken, forceMsg);
+        await sendMsgSafe(
+          lastContact.fromId,
+          lastContact.contextToken,
+          forceMsg,
+        );
         await doReconnect();
         break;
       }
 
       const waitSecs = Math.max(
         0,
-        Math.min(RECONNECT_CONFIG.reminder_interval, remaining - RECONNECT_CONFIG.force_before),
+        Math.min(
+          RECONNECT_CONFIG.reminder_interval,
+          remaining - RECONNECT_CONFIG.force_before,
+        ),
       );
 
       let userReplied = false;
@@ -250,13 +324,18 @@ async function reconnectTimerLoop(): Promise<void> {
       }
 
       remaining =
-        (loginTime + RECONNECT_CONFIG.session_duration * 1000 - Date.now()) / 1000;
+        (loginTime + RECONNECT_CONFIG.session_duration * 1000 - Date.now()) /
+        1000;
       if (remaining <= RECONNECT_CONFIG.force_before) continue;
 
       const remainingM = Math.round(remaining / 60);
       const remindMsg = `[提醒] 连接还剩约 ${remainingM} 分钟，是否现在重新连接？回复 Y 立即重连，N 继续等待`;
       console.log(remindMsg);
-      await sendMsgSafe(lastContact.fromId, lastContact.contextToken, remindMsg);
+      await sendMsgSafe(
+        lastContact.fromId,
+        lastContact.contextToken,
+        remindMsg,
+      );
     }
   }
 }
@@ -308,7 +387,7 @@ async function messageLoop(): Promise<void> {
       }
 
       // 优先级 3：首次交互
-      if (!welcomedUsers.has(fromId)) {
+      if (!saved && !welcomedUsers.has(fromId)) {
         welcomedUsers.add(fromId);
         await sendMsgSafe(fromId, contextToken, COMMANDS_MSG);
         continue;
@@ -322,7 +401,8 @@ async function messageLoop(): Promise<void> {
       if (text?.trim() === "/time") {
         const rem = Math.max(
           0,
-          (loginTime + RECONNECT_CONFIG.session_duration * 1000 - Date.now()) / 1000,
+          (loginTime + RECONNECT_CONFIG.session_duration * 1000 - Date.now()) /
+            1000,
         );
         const h = Math.floor(rem / 3600);
         const m = Math.floor((rem % 3600) / 60);
@@ -337,7 +417,11 @@ async function messageLoop(): Promise<void> {
           await sendMsgSafe(fromId, contextToken, "重连正在进行中，请稍候...");
         } else {
           manualReconnectPending.add(fromId);
-          await sendMsgSafe(fromId, contextToken, "确认要立即重新连接吗？\n回复 Y 确认重连 / N 取消");
+          await sendMsgSafe(
+            fromId,
+            contextToken,
+            "确认要立即重新连接吗？\n回复 Y 确认重连 / N 取消",
+          );
         }
         continue;
       }
@@ -396,7 +480,9 @@ async function messageLoop(): Promise<void> {
         },
         base_info: { channel_version: "1.0.2" },
       });
-      console.log(`已回复: ${reply!.slice(0, 50)}${reply!.length > 50 ? "..." : ""}`);
+      console.log(
+        `已回复: ${reply!.slice(0, 50)}${reply!.length > 50 ? "..." : ""}`,
+      );
 
       if (typingTicket) {
         await apiPost("ilink/bot/sendtyping", {
@@ -418,54 +504,79 @@ console.log(`
 
 const sep = "=".repeat(60);
 console.log(`\n${sep}`);
-console.log(`  API Key  : ${DEEPSEEK_API_KEY.slice(0, 5)}${"*".repeat(Math.max(0, DEEPSEEK_API_KEY.length - 10))}${DEEPSEEK_API_KEY.slice(-5)}`);
+console.log(
+  `  API Key  : ${DEEPSEEK_API_KEY.slice(0, 5)}${"*".repeat(Math.max(0, DEEPSEEK_API_KEY.length - 10))}${DEEPSEEK_API_KEY.slice(-5)}`,
+);
 console.log(`  API 地址 : ${DEEPSEEK_BASE_URL}`);
 console.log(`  模型     : ${MODEL}`);
 console.log(sep);
 
-// 1. 获取二维码
-const { qrcode, qrcode_img_content }: any = await fetch(
-  `${BASE_URL}/ilink/bot/get_bot_qrcode?bot_type=3`,
-).then((r) => r.json());
-
-if (qrcode_img_content) {
-  const content = String(qrcode_img_content);
-  if (content.startsWith("data:image/")) {
-    const [header, b64] = content.split(",");
-    const ext = header!.match(/data:image\/(\w+)/)?.[1] ?? "png";
-    fs.writeFileSync(`qrcode.${ext}`, Buffer.from(b64!, "base64"));
-    console.log(`二维码已保存到 qrcode.${ext}`);
-  } else if (content.startsWith("http")) {
-    console.log("二维码图片地址:", content);
-    console.log("请将图片地址发送给文件传输助手，然后用手机端微信打开链接进行连接！！！");
-  } else if (content.startsWith("<svg")) {
-    fs.writeFileSync("qrcode.svg", content);
-    console.log("二维码已保存到 qrcode.svg，用浏览器打开");
-  } else {
-    fs.writeFileSync("qrcode.png", Buffer.from(content, "base64"));
-    console.log("二维码已保存到 qrcode.png");
-  }
-}
-
-// 2. 等待扫码
-console.log("等待扫码...");
-while (true) {
-  const status: any = await fetch(
-    `${BASE_URL}/ilink/bot/get_qrcode_status?qrcode=${qrcode}`,
-  ).then((r) => r.json());
-
-  if (status.status === "confirmed") {
-    botToken = status.bot_token;
-    botBaseUrl = status.baseurl ?? BASE_URL;
-    console.log("登录成功！");
+// 1. 尝试复用已保存的 session
+const saved = loadSession();
+let sessionRestored = false;
+if (saved) {
+  console.log("检测到本地 session，正在验证...");
+  if (await validateSession(saved.token, saved.baseUrl)) {
+    botToken = saved.token;
+    botBaseUrl = saved.baseUrl;
+    loginTime = saved.loginTime;
+    sessionRestored = true;
+    console.log("session 有效，跳过扫码直接启动！");
     console.log("=".repeat(40));
     console.log(COMMANDS_MSG);
     console.log("=".repeat(40));
-    break;
+  } else {
+    console.log("session 已失效，需要重新扫码");
   }
-  await sleep(1000);
 }
 
-// 3. 记录登录时间，并发启动消息循环和定时器循环
-loginTime = Date.now();
+// 2. session 无效则走扫码流程
+if (!sessionRestored) {
+  const { qrcode, qrcode_img_content }: any = await fetch(
+    `${BASE_URL}/ilink/bot/get_bot_qrcode?bot_type=3`,
+  ).then((r) => r.json());
+
+  if (qrcode_img_content) {
+    const content = String(qrcode_img_content);
+    if (content.startsWith("data:image/")) {
+      const [header, b64] = content.split(",");
+      const ext = header!.match(/data:image\/(\w+)/)?.[1] ?? "png";
+      fs.writeFileSync(`qrcode.${ext}`, Buffer.from(b64!, "base64"));
+      console.log(`二维码已保存到 qrcode.${ext}`);
+    } else if (content.startsWith("http")) {
+      console.log("二维码图片地址:", content);
+      console.log(
+        "请将图片地址发送给文件传输助手，然后用手机端微信打开链接进行连接！！！",
+      );
+    } else if (content.startsWith("<svg")) {
+      fs.writeFileSync("qrcode.svg", content);
+      console.log("二维码已保存到 qrcode.svg，用浏览器打开");
+    } else {
+      fs.writeFileSync("qrcode.png", Buffer.from(content, "base64"));
+      console.log("二维码已保存到 qrcode.png");
+    }
+  }
+
+  console.log("等待扫码...");
+  while (true) {
+    const status: any = await fetch(
+      `${BASE_URL}/ilink/bot/get_qrcode_status?qrcode=${qrcode}`,
+    ).then((r) => r.json());
+
+    if (status.status === "confirmed") {
+      botToken = status.bot_token;
+      botBaseUrl = status.baseurl ?? BASE_URL;
+      loginTime = Date.now();
+      saveSession(botToken, botBaseUrl, loginTime);
+      console.log("登录成功！");
+      console.log("=".repeat(40));
+      console.log(COMMANDS_MSG);
+      console.log("=".repeat(40));
+      break;
+    }
+    await sleep(1000);
+  }
+}
+
+// 3. 并发启动消息循环和定时器循环
 await Promise.all([messageLoop(), reconnectTimerLoop()]);
