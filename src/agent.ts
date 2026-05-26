@@ -232,7 +232,7 @@ export type AgentLoopOptions = {
 export async function agentLoop(
   userPrompt: UserContent,
   options: AgentLoopOptions = {},
-) {
+): Promise<string> {
   const {
     isSubTask = false,
     interactive = !isSubTask,
@@ -430,7 +430,7 @@ export async function agentLoop(
           if (!userReply) {
             console.log("\n✅ 任务全部完成！");
             await logDone();
-            return;
+            return "";
           }
           const expandedReply = await expandFileReferences(userReply);
           await logUser(expandedReply);
@@ -440,7 +440,7 @@ export async function agentLoop(
         console.log("\n✅ 任务全部完成！最终总结：");
         if (fullContent) console.log(fullContent);
         await logDone(fullContent || undefined);
-        return;
+        return fullContent;
       }
 
       // 执行所有工具调用
@@ -480,4 +480,5 @@ export async function agentLoop(
   } finally {
     await closeMCPBridge();
   }
+  return "";
 }

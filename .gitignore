@@ -6,3 +6,4 @@ memory/
 
 src/mcp_servers.json
 projects/
+.bot_session.json

@@ -106,23 +106,21 @@ export function promptWithFileCompletion(question: string): Promise<string> {
       }
 
       const lines = inputBuffer.split("\n");
+
+      // 逐行清除整行并重写（含提示符），避免光标定位偏差
       for (let i = 0; i < lines.length; i++) {
-        process.stdout.write(i === 0 ? `\r\x1b[${promptCols + 1}G\x1b[K` : `\r\x1b[K`);
+        process.stdout.write("\r\x1b[2K");
+        if (i === 0) process.stdout.write(promptLine);
         process.stdout.write(lines[i] ?? "");
         if (i < lines.length - 1) process.stdout.write("\n");
       }
 
-      // 若行数减少，清除多余的旧行
+      // 清除多余的旧行
+      for (let i = lines.length; i < renderedInputLines; i++) {
+        process.stdout.write("\n\x1b[2K");
+      }
       if (renderedInputLines > lines.length) {
-        for (let i = 0; i < renderedInputLines - lines.length; i++) {
-          process.stdout.write("\n\x1b[K");
-        }
         process.stdout.write(`\x1b[${renderedInputLines - lines.length}A`);
-        const lastLine = lines[lines.length - 1] ?? "";
-        const col = lines.length > 1
-          ? visualWidth(lastLine) + 1
-          : promptCols + visualWidth(lastLine) + 1;
-        process.stdout.write(`\r\x1b[${col}G`);
       }
 
       renderedInputLines = lines.length;

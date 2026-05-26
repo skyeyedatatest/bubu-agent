@@ -5,7 +5,8 @@
   "type": "module",
   "main": "src/index.ts",
   "bin": {
-    "bubu": "./bin/bubu.mjs"
+    "bubu": "./bin/bubu.mjs",
+    "bubu_wx": "./bin/bubu_wx.mjs"
   },
   "scripts": {
     "dev": "tsx src/index.ts",

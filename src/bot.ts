@@ -2,7 +2,7 @@ import fs from "fs";
 import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import path from "path";
-import OpenAI from "openai";
+import { agentLoop } from "./agent.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
@@ -75,28 +75,12 @@ const RECONNECT_CONFIG = {
   qrcode_scan_timeout: 600,
 };
 
-// ========== DeepSeek 配置 ==========
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const DEEPSEEK_BASE_URL = process.env.BASE_URL ?? "https://api.deepseek.com";
-const MODEL = process.env.MODEL ?? "deepseek-chat";
-const SYSTEM_PROMPT =
-  process.env.PROMPT ??
-  "你是一个有帮助的AI助手，请用中文简洁地回复。字数尽量少一些";
-
-if (!DEEPSEEK_API_KEY) {
+// ========== 启动校验 ==========
+if (!process.env.DEEPSEEK_API_KEY) {
   console.error("错误：未找到 DEEPSEEK_API_KEY，请在 .env 文件中设置");
   process.exit(1);
 }
-
-const openai = new OpenAI({
-  baseURL: DEEPSEEK_BASE_URL,
-  apiKey: DEEPSEEK_API_KEY,
-});
-
-type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
-const userHistories = new Map<string, ChatMessage[]>();
-
-// ====================================
+// ================================
 
 const COMMANDS_MSG = [
   "连接成功！",
@@ -119,6 +103,8 @@ let lastContact: { fromId: string | null; contextToken: string | null } = {
 };
 const welcomedUsers = new Set<string>();
 const manualReconnectPending = new Set<string>();
+const agentRunning = new Set<string>();
+const pendingConfirm = new Map<string, (result: boolean) => void>();
 let warningActive: boolean = false;
 let reconnectInProgress: boolean = false;
 let reconnectResolve: (() => void) | null = null;
@@ -386,8 +372,16 @@ async function messageLoop(): Promise<void> {
         continue;
       }
 
-      // 优先级 3：首次交互
-      if (!saved && !welcomedUsers.has(fromId)) {
+      // 优先级 3：agent 敏感操作 Y/N 确认
+      if (pendingConfirm.has(fromId) && ["Y", "N"].includes(text?.trim()?.toUpperCase())) {
+        const resolve = pendingConfirm.get(fromId)!;
+        pendingConfirm.delete(fromId);
+        resolve(text.trim().toUpperCase() === "Y");
+        continue;
+      }
+
+      // 优先级 4：首次交互
+      if (!welcomedUsers.has(fromId)) {
         welcomedUsers.add(fromId);
         await sendMsgSafe(fromId, contextToken, COMMANDS_MSG);
         continue;
@@ -445,52 +439,47 @@ async function messageLoop(): Promise<void> {
         });
       }
 
-      // 调用 DeepSeek API
-      const history: ChatMessage[] = userHistories.get(fromId) ?? [];
-      history.push({ role: "user", content: text });
-      if (history.length > 40) history.splice(0, history.length - 40);
-
-      let reply: string;
-      try {
-        const res = await openai.chat.completions.create({
-          model: MODEL,
-          messages: [{ role: "system", content: SYSTEM_PROMPT }, ...history],
-          max_tokens: 2000,
-        });
-        reply = res.choices[0]?.message?.content ?? "（无回复）";
-        history.push({ role: "assistant", content: reply });
-        userHistories.set(fromId, history);
-      } catch (e: any) {
-        reply = `[AI 出错] ${e?.message ?? String(e)}`;
-        console.error(`AI 调用失败: ${e?.message}`);
+      // 并发守卫
+      if (agentRunning.has(fromId)) {
+        await sendMsgSafe(fromId, contextToken, "上一条消息还在处理中，请稍候...");
+        continue;
       }
 
-      const clientId = `openclaw-weixin-${Math.floor(Math.random() * 0xffffffff)
-        .toString(16)
-        .padStart(8, "0")}`;
-      await apiPost("ilink/bot/sendmessage", {
-        msg: {
-          from_user_id: "",
-          to_user_id: fromId,
-          client_id: clientId,
-          message_type: 2,
-          message_state: 2,
-          context_token: contextToken,
-          item_list: [{ type: 1, text_item: { text: reply! } }],
-        },
-        base_info: { channel_version: "1.0.2" },
-      });
-      console.log(
-        `已回复: ${reply!.slice(0, 50)}${reply!.length > 50 ? "..." : ""}`,
-      );
-
-      if (typingTicket) {
-        await apiPost("ilink/bot/sendtyping", {
-          ilink_user_id: fromId,
-          typing_ticket: typingTicket,
-          status: 2,
+      // 敏感操作确认函数：向用户发消息并等待 Y/N（60s 超时自动取消）
+      const confirmFn = async (cmd: string): Promise<boolean> => {
+        await sendMsgSafe(fromId, contextToken,
+          `⚠️ Agent 请求执行敏感操作：\n${cmd}\n\n回复 Y 确认 / N 取消（60秒超时自动取消）`);
+        return new Promise<boolean>((resolve) => {
+          const timer = setTimeout(() => {
+            pendingConfirm.delete(fromId);
+            resolve(false);
+          }, 60_000);
+          pendingConfirm.set(fromId, (result) => {
+            clearTimeout(timer);
+            resolve(result);
+          });
         });
-      }
+      };
+
+      // 启动 Agent（不 await，避免阻塞消息循环）
+      agentRunning.add(fromId);
+      agentLoop(text, { interactive: false, confirmFn })
+        .then((reply) => {
+          if (reply) sendMsgSafe(fromId, contextToken, reply);
+        })
+        .catch((e: any) => {
+          sendMsgSafe(fromId, contextToken, `[Agent 出错] ${e?.message ?? String(e)}`);
+        })
+        .finally(async () => {
+          agentRunning.delete(fromId);
+          if (typingTicket) {
+            await apiPost("ilink/bot/sendtyping", {
+              ilink_user_id: fromId,
+              typing_ticket: typingTicket,
+              status: 2,
+            });
+          }
+        });
     }
   }
 }
@@ -503,12 +492,11 @@ console.log(`
 ╚══════════════════════════════════════════════════════════╝`);
 
 const sep = "=".repeat(60);
+const apiKey = process.env.DEEPSEEK_API_KEY!;
 console.log(`\n${sep}`);
-console.log(
-  `  API Key  : ${DEEPSEEK_API_KEY.slice(0, 5)}${"*".repeat(Math.max(0, DEEPSEEK_API_KEY.length - 10))}${DEEPSEEK_API_KEY.slice(-5)}`,
-);
-console.log(`  API 地址 : ${DEEPSEEK_BASE_URL}`);
-console.log(`  模型     : ${MODEL}`);
+console.log(`  API Key  : ${apiKey.slice(0, 5)}${"*".repeat(Math.max(0, apiKey.length - 10))}${apiKey.slice(-5)}`);
+console.log(`  API 地址 : ${process.env.BASE_URL ?? "https://api.deepseek.com"}`);
+console.log(`  模型     : ${process.env.MODEL ?? "deepseek-chat"}`);
 console.log(sep);
 
 // 1. 尝试复用已保存的 session
